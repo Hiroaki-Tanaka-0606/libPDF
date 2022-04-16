@@ -43,7 +43,12 @@ private:
 	vector<int> types;
 public:
 	Dictionary();
-	
+	void Append(unsigned char* key, void* value, int type);
+	void Print(int indent);
+	void Print();
+	int Search(unsigned char* key);
+	bool Read(unsigned char* key, void** value, int* type);
+	void Merge(Dictionary dict2);
 };
 
 class Array{
@@ -52,4 +57,18 @@ private:
 	vector<int> types;
 public:
 	Array();
+	void Append(void* value, int type);
+	void Print();
+	void Print(int indent);
 };
+
+class Indirect{
+public:
+	int objNumber;
+	int genNumber;
+	Indirect();
+};
+
+char* printObj(void* value, int type);
+
+int unsignedstrlen(unsigned char* a);

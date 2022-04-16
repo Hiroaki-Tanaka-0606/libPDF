@@ -70,6 +70,7 @@ PDFParser::PDFParser(char* fileName):
 
 	int prevXRef=lastXRef;
 	while(true){
+		cout << endl;
 		prevXRef=readTrailer(prevXRef);
 		if(prevXRef==0){
 			// This is the first Trailer
@@ -80,7 +81,8 @@ PDFParser::PDFParser(char* fileName):
 			return;
 		}
 	}
-
+	cout << endl << "Trailer dictionary" << endl;
+	trailer.Print();
 }
 
 bool PDFParser::hasError(){
@@ -97,6 +99,10 @@ bool PDFParser::isEOL(char a){
 
 bool PDFParser::isDelimiter(char a){
 	return a=='(' || a==')' || a=='<' || a=='>' || a=='[' || a==']' || a=='/' || a=='%' || a=='{' || a=='}';
+}
+
+bool PDFParser::isOctal(char a){
+	return a=='0' || a=='1' || a=='2' || a=='3' || a=='4' || a=='5' || a=='6' || a=='7';
 }
 
 bool PDFParser::findHeader(){
@@ -338,8 +344,18 @@ int PDFParser::readTrailer(int position){
 	}
 
 	// read Trailer dictionary
-	if(!readDict(trailer)){
+	Dictionary trailer2;
+	if(!readDict(&trailer2)){
 		return -1;
+	}
+	// merge trailer2 to trailer
+	trailer.Merge(trailer2);
+	
+	// check Prev key exists
+	int PrevType;
+	void* PrevValue;
+	if(trailer2.Read((unsigned char*)"Prev", (void**)&PrevValue, &PrevType) && PrevType==Type::Int){
+		return *((int*)PrevValue);
 	}
 	return 0;
 }
@@ -397,6 +413,21 @@ bool PDFParser::readInt(int* value){
 	}
 }
 
+bool PDFParser::readBool(bool* value){
+	char buffer[32];
+	if(!readToken(buffer, 32)){
+		return false;
+	}
+	if(strcmp(buffer, "true")==0){
+		*value=true;
+	}else if(strcmp(buffer, "false")==0){
+		*value=false;
+	}else{
+		return false;
+	}
+	return true;
+}
+
 bool PDFParser::readReal(double* value){
 	char buffer[32];
 	if(!readToken(buffer, 32)){
@@ -451,7 +482,7 @@ bool PDFParser::skipSpaces(){
 	return true;
 }
 
-bool PDFParser::readDict(Dictionary dict){
+bool PDFParser::readDict(Dictionary* dict){
 	// begins with "<<"
 	if(!skipSpaces()){
 		return false;
@@ -471,33 +502,85 @@ bool PDFParser::readDict(Dictionary dict){
 			}
 			// value
 			int type=judgeType();
-			printf("Name: %s, Type: %d\n", name, type);
+			// printf("Name: %s, Type: %d\n", name, type);
 			char buffer[128];
-			unsigned char* name2;
-			int v1, v2;
-			Dictionary dict2;
-			Array array2;
+			unsigned char* stringValue;
+			int* intValue;
+			bool* boolValue;
+			double* realValue;
+			unsigned char* nameValue;
+			int* objNumValue;
+			int* genNumValue;
+			Indirect* indirectValue;
+			Dictionary* dictValue;
+			Array* arrayValue;
 			switch(type){
 			case Type::Bool:
+				boolValue=new bool();
+				if(!readBool(boolValue)){
+					cout << "Error in read bool" << endl;
+					return false;
+				}
+				dict->Append(name, boolValue, type);
+				break;
 			case Type::Int:
+				intValue=new int();
+				if(!readInt(intValue)){
+					cout << "Error in read integer" << endl;
+					return false;
+				}
+				dict->Append(name, intValue, type);
+				break;
 			case Type::Real:
+				realValue=new double();
+				if(!readReal(realValue)){
+					cout << "Error in read real number" << endl;
+					return false;
+				}
+				dict->Append(name, realValue, type);
+				break;
 			case Type::Null:
 				readToken(buffer, 128);
 				break;
 			case Type::String:
-			  name2=readString();
+			  stringValue=readString();
+				if(stringValue==NULL){
+					cout << "Error in read string" << endl;
+					return false;
+				}
+				dict->Append(name, stringValue, type);
 				break;
 			case Type::Name:
-			  name2=readName();
+			  nameValue=readName();
+				if(nameValue==NULL){
+					cout << "Error in read name" << endl;
+					return false;
+				}
+				dict->Append(name, nameValue, type);
 				break;
 			case Type::Indirect:
-				readRefID(&v1, &v2);
+				indirectValue=new Indirect();
+				if(!readRefID(&(indirectValue->objNumber), &(indirectValue->genNumber))){
+					cout << "Error in read indirect object" << endl;
+					return false;
+				}
+				dict->Append(name, indirectValue, type);
 				break;
 			case Type::Dict:
-				readDict(dict2);
+				dictValue=new Dictionary();
+				if(!readDict(dictValue)){
+					cout << "Error in read dictionary" << endl;
+					return false;
+				}
+				dict->Append(name, dictValue, type);
 				break;
 			case Type::Array:
-				readArray(array2);
+				arrayValue=new Array();
+				if(!readArray(arrayValue)){
+					cout << "Error in read array" << endl;
+					return false;
+				}
+				dict->Append(name, arrayValue, type);
 				break;
 			}
 			//break;
@@ -510,7 +593,7 @@ bool PDFParser::readDict(Dictionary dict){
 	return true;
 }
 
-bool PDFParser::readArray(Array array){
+bool PDFParser::readArray(Array* array){
 	// begins with "["
 	if(!skipSpaces()){
 		return false;
@@ -524,35 +607,88 @@ bool PDFParser::readArray(Array array){
 		int delim=judgeDelimiter(false);
 		if(delim!=Delimiter::RSB){
 			int type=judgeType();
-			printf("Type: %d\n", type);
+			// printf("Type: %d\n", type);
 			char buffer[128];
-			unsigned char* name2;
-			int v1, v2;
-			Dictionary dict2;
-			Array array2;
+			unsigned char* stringValue;
+			int* intValue;
+			bool* boolValue;
+			double* realValue;
+			unsigned char* nameValue;
+			int* objNumValue;
+			int* genNumValue;
+			Indirect* indirectValue;
+			Dictionary* dictValue;
+			Array* arrayValue;
 			switch(type){
 			case Type::Bool:
+				boolValue=new bool();
+				if(!readBool(boolValue)){
+					cout << "Error in read bool" << endl;
+					return false;
+				}
+				array->Append(boolValue, type);
+				break;
 			case Type::Int:
+				intValue=new int();
+				if(!readInt(intValue)){
+					cout << "Error in read integer" << endl;
+					return false;
+				}
+				array->Append(intValue, type);
+				break;
 			case Type::Real:
+				realValue=new double();
+				if(!readReal(realValue)){
+					cout << "Error in read real number" << endl;
+					return false;
+				}
+				array->Append(realValue, type);
+				break;
 			case Type::Null:
 				readToken(buffer, 128);
 				break;
 			case Type::String:
-			  name2=readString();
+			  stringValue=readString();
+				if(stringValue==NULL){
+					cout << "Error in read string" << endl;
+					return false;
+				}
+				array->Append(stringValue, type);
 				break;
 			case Type::Name:
-				name2=readName();
+			  nameValue=readName();
+				if(nameValue==NULL){
+					cout << "Error in read name" << endl;
+					return false;
+				}
+				array->Append(nameValue, type);
 				break;
 			case Type::Indirect:
-				readRefID(&v1, &v2);
+				indirectValue=new Indirect();
+				if(!readRefID(&(indirectValue->objNumber), &(indirectValue->genNumber))){
+					cout << "Error in read indirect object" << endl;
+					return false;
+				}
+				array->Append(indirectValue, type);
 				break;
 			case Type::Dict:
-				readDict(dict2);
+				dictValue=new Dictionary();
+				if(!readDict(dictValue)){
+					cout << "Error in read dictionary" << endl;
+					return false;
+				}
+				array->Append(dictValue, type);
 				break;
 			case Type::Array:
-				readArray(array2);
+				arrayValue=new Array();
+				if(!readArray(arrayValue)){
+					cout << "Error in read array" << endl;
+					return false;
+				}
+				array->Append(arrayValue, type);
 				break;
 			}
+			
 		}else{
 			// ] (end of array)
 			judgeDelimiter(true);
@@ -660,17 +796,113 @@ unsigned char* PDFParser::readString(){
 		return NULL;
 	}
 	char startDelim=a;
-	char endDelim= startDelim=='(' ? ')' : '>';
+	bool isLiteral=(startDelim=='(');
+	char endDelim= isLiteral ? ')' : '>';
 	string value1=string("");
+	int depth=1;
 	while(true){
 		file.get(a);
 		if(a==endDelim){
-			break;
+			depth--;
+			if(depth==0){
+				break;
+			}
 		}else{
+			if(a==startDelim){
+				depth++;
+			}
 			value1+=a;
 		}
 	}
-	return NULL;
+	if(isLiteral){
+		unsigned char* literal=new unsigned char[value1.length()+1];
+		int i=0;
+		int j=0;
+		for(i=0; i<value1.length(); i++){
+			if(value1[i]=='\\'){
+				// escape
+				if(value1[i+1]=='n'){
+					literal[j]='\n';
+					j++;
+					i++;
+				}else if(value1[i+1]=='r'){
+					literal[j]='\r';
+					j++;
+					i++;
+				}else if(value1[i+1]=='t'){
+					literal[j]='\t';
+					j++;
+					i++;
+				}else if(value1[i+1]=='b'){
+					literal[j]='\b';
+					j++;
+					i++;
+				}else if(value1[i+1]=='f'){
+					literal[j]='\f';
+					j++;
+					i++;
+				}else if(value1[i+1]=='('){
+					literal[j]='(';
+					j++;
+					i++;
+				}else if(value1[i+1]==')'){
+					literal[j]=')';
+					j++;
+					i++;
+				}else if(value1[i+1]=='\\'){
+					literal[j]='\\';
+					j++;
+					i++;
+				}else if(value1[i+1]=='\r' || value1[i+1]=='\n'){
+					if(value1[i+1]=='\r' && value1[i+1]=='\n'){
+						i+=2;
+					}else{
+						i++;
+					}
+				}else if(isOctal(value1[i+1])){
+					int length;
+					if(isOctal(value1[i+2])){
+						if(isOctal(value1[i+3])){
+							length=3;
+						}else{
+							length=2;
+						}
+					}else{
+						length=1;
+					}
+					char code[length+1];
+					int l;
+					for(l=0; l<length; l++){
+						code[l]=value1[i+1+l];
+					}
+					code[length]='\0';
+					literal[j]=(unsigned char)strtol(code, NULL, 8);
+					i+=length;
+					j++;
+				}
+			}else{
+				literal[j]=(unsigned char)value1[i];
+				j++;
+			}
+		}
+		literal[j]='\0';
+		return literal;
+	}else{
+		if(value1.length()%2==1){
+			value1+='0';
+		}
+		unsigned char* hexadecimal=new unsigned char[value1.length()/2+1];
+		int i;
+		char hex[3];
+		hex[2]='\0';
+		for(i=0; i<value1.length()/2; i++){
+			hex[0]=value1[i*2];
+			hex[1]=value1[i*2+1];
+			hexadecimal[i]=(unsigned char)strtol(hex, NULL, 16);
+		}
+		hexadecimal[value1.length()/2]=='\0';
+		return hexadecimal;
+	}
 }
 
 int PDFParser::judgeType(){

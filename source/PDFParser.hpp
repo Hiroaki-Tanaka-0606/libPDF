@@ -23,6 +23,7 @@ public:
 	bool isSpace(char a);
 	bool isEOL(char a);
 	bool isDelimiter(char a);
+	bool isOctal(char a);
 	int judgeDelimiter(bool skip);
 	int judgeType();
 	bool gotoEOL();
@@ -36,11 +37,12 @@ public:
 	bool readInt(int* value);
 	bool readRefID(int* objNumber, int* genNumber);
 	bool readReal(double* value);
+	bool readBool(bool* value);
 	bool readToken(char* buffer, int n);
-	bool readArray(Array array);
+	bool readArray(Array* array);
 	unsigned char* readName();
 	unsigned char* readString();
 	bool skipSpaces();
-	bool readDict(Dictionary dict);
+	bool readDict(Dictionary* dict);
 	
 };
