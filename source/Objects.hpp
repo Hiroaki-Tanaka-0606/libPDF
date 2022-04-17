@@ -60,15 +60,41 @@ public:
 	void Append(void* value, int type);
 	void Print();
 	void Print(int indent);
+	int getSize();
+	bool Read(int index, void** value, int* type);
 };
 
 class Indirect{
 public:
+	int objNumber; // negative objNumber means the Indirect is not yet initialized
+	int genNumber;
+	int position;
+	bool used;
+	int type;
+	bool objStream;
+	int objStreamNumber;
+	int objStreamIndex;
+	Indirect();
+};
+
+class Stream{
+public:
 	int objNumber;
 	int genNumber;
-	Indirect();
+	Dictionary StmDict;
+	unsigned char* data;
+	unsigned char* decoded;
+	int length;
+	int dlength;
+	Stream();
+	bool Decode();
 };
 
 char* printObj(void* value, int type);
 
 int unsignedstrlen(unsigned char* a);
+bool unsignedstrcmp(unsigned char* a, unsigned char* b);
+
+int decodeData(unsigned char* encoded, unsigned char* filter, Dictionary* parm, int encodedLength, unsigned char** decoded);
+
+int PNGPredictor(unsigned char** pointer, int length, Dictionary* columns);

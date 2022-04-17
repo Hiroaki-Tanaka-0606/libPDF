@@ -16,6 +16,8 @@ private:
 	int lastXRef;
 	PDFVersion V_header;
 	Dictionary trailer;
+	Indirect** Reference;
+	int ReferenceSize;
 public:
 	PDFParser(char* fileName);
 	bool hasError();
@@ -33,6 +35,7 @@ public:
 	bool findSXref();
 	void readLine(char* buffer, int n);
 	int readTrailer(int position);
+	int readXRef(int position);
 	bool readObjID(int* objNumber, int* genNumber);
 	bool readInt(int* value);
 	bool readRefID(int* objNumber, int* genNumber);
@@ -44,5 +47,5 @@ public:
 	unsigned char* readString();
 	bool skipSpaces();
 	bool readDict(Dictionary* dict);
-	
+	bool readStream(Stream* stm);
 };

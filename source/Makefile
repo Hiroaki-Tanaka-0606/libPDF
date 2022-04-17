@@ -4,7 +4,7 @@ all: readPDF.o
 lib=PDFParser.o PDFVersion.o Objects.o
 
 readPDF.o: readPDF_main.o $(lib)
-	$(CXX) readPDF_main.o $(lib) -o readPDF.o
+	$(CXX) readPDF_main.o $(lib) -lz -o readPDF.o
 	cp readPDF.o ../executables/
 
 .cpp.o:

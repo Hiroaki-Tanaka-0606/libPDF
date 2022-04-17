@@ -15,6 +15,8 @@
 #define SXREF  "startxref"
 #define TRAIL  "trailer"
 #define XREF   "xref"
+#define STM    "stream"
+#define ESTM   "endstream"
 
 
 #include <fstream>
@@ -67,7 +69,6 @@ PDFParser::PDFParser(char* fileName):
 	cout << "startxref found" << endl;
 
 	// read trailer(s)
-
 	int prevXRef=lastXRef;
 	while(true){
 		cout << endl;
@@ -83,6 +84,55 @@ PDFParser::PDFParser(char* fileName):
 	}
 	cout << endl << "Trailer dictionary" << endl;
 	trailer.Print();
+	cout << endl;
+
+	// prepare xref database
+	int SizeType;
+	void* SizeValue;
+  if(trailer.Read((unsigned char*)"Size", (void**)&SizeValue, &SizeType) && SizeType==Type::Int){
+	}else{
+		cout << "Error in read size of xref references" << endl;
+		error=true;
+		return;
+	}
+	ReferenceSize=*((int*)SizeValue);
+	printf("Make XRef database with size %d\n", ReferenceSize);
+	Reference=new Indirect*[ReferenceSize];
+	int i;
+	for(i=0; i<ReferenceSize; i++){
+		Reference[i]=new Indirect();
+	}
+	prevXRef=lastXRef;
+	while(true){
+		cout << endl;
+		prevXRef=readXRef(prevXRef);
+		if(prevXRef==0){
+			// This is the first Trailer
+			break;
+		}else if(prevXRef<0){
+			error=true;
+			return;
+		}
+	}
+	for(i=0; i<ReferenceSize; i++){
+		if(i!=Reference[i]->objNumber){
+			printf("Error: missing ref #%d\n", i);
+			error=true;
+			return;
+		}
+		printf("Ref #%d: genNumber %d, status %s, ",
+					 i, Reference[i]->genNumber,
+					 Reference[i]->used ? "used" : "free");
+		if(Reference[i]->used){
+			if(Reference[i]->objStream){
+				printf("index %d of objStream (#%d)\n", Reference[i]->objStreamIndex, Reference[i]->objStreamNumber);
+			}else{
+				printf("position %d\n", Reference[i]->position);
+			}
+		}else{
+			cout << endl;
+		}
+	}
 }
 
 bool PDFParser::hasError(){
@@ -164,6 +214,16 @@ bool PDFParser::gotoEOL(){
 // 2: nothing is ok
 bool PDFParser::gotoEOL(int flag){
 	char a;
+	// check whether the pointer is at EOF
+	int currentPos=(int) file.tellg();
+	file.seekg(0, ios_base::end);
+	int endPos=(int)file.tellg();
+	file.seekg(currentPos, ios_base::beg);
+	if(currentPos==endPos){
+		// already at EOF
+		cout << "EOF1" << endl;
+		return true;
+	}
 	while(true){
 		file.get(a);
 		if(flag==1){
@@ -185,8 +245,12 @@ bool PDFParser::gotoEOL(int flag){
 			return true;
 		}else if(a==LF){
 			return true;
-		}else if(a==EOF){
-			return false;
+		}else{
+			currentPos==(int)file.tellg();
+			if(currentPos==endPos){
+				cout << "EOF2" << endl;
+				return true;
+			}
 		}
 	}
 }
@@ -209,6 +273,7 @@ bool PDFParser::findFooter(){
 		return false;
 	}
 	backtoEOL();
+	cout << "findFooter finish" << endl;
 	return true;
 }
 
@@ -239,9 +304,10 @@ void PDFParser::backtoEOL(){
 		file.seekg(-1, ios_base::cur);
 		file.get(a);
 		if(isEOL(a)){
-			break;
+			return;
 		}else{
 			file.seekg(-1, ios_base::cur);
+			// cout << a << endl;
 		}
 	}
 }
@@ -301,13 +367,13 @@ int PDFParser::readTrailer(int position){
 	if(XRefTable && !gotoEOL(1)){
 		XRefTable=false;
 	}
-	file.seekg(position, ios_base::beg);
+	file.seekg(position+offset, ios_base::beg);
 	
 	// XRef stream: begins with "%d %d obj" line
 	int objNumber;
 	int genNumber;
 	bool XRefStream=readObjID(&objNumber, &genNumber);
-	file.seekg(position, ios_base::beg);
+	file.seekg(position+offset, ios_base::beg);
 
 	if(!XRefTable && !XRefStream){
 		cout << "Error: none of XRef Table or XRef Stream" << endl;
@@ -339,7 +405,7 @@ int PDFParser::readTrailer(int position){
 		}
 				 
 	}else{
-		cout << "Skip ObjID raw" << endl;
+		cout << "Skip ObjID row" << endl;
 		readLine(buffer, 32);
 	}
 
@@ -360,8 +426,310 @@ int PDFParser::readTrailer(int position){
 	return 0;
 }
 
+
+int PDFParser::readXRef(int position){
+	printf("Read XRef at %d\n", position);
+	file.seekg(position+offset, ios_base::beg);
+
+  // XRef table: begins with "xref" line
+	bool XRefTable=true;
+	int i, j, k;
+	char a;
+	for(i=0; i<strlen(XREF); i++){
+		file.get(a);
+		if(a!=XREF[i]){
+			XRefTable=false;
+			break;
+		}
+	}
+	if(XRefTable && !gotoEOL(1)){
+		XRefTable=false;
+	}
+	file.seekg(position+offset, ios_base::beg);
+	
+	// XRef stream: begins with "%d %d obj" line
+	int objNumber;
+	int genNumber;
+	bool XRefStream=readObjID(&objNumber, &genNumber);
+	file.seekg(position+offset, ios_base::beg);
+
+	if(!XRefTable && !XRefStream){
+		cout << "Error: none of XRef Table or XRef Stream" << endl;
+		return -1;
+	}
+
+	char buffer[32];
+	Dictionary trailer2;
+	if(XRefTable){
+		cout << "Read XRef table" << endl;
+		// skip "xref" row
+		readLine(buffer, 32);
+		int objNumber;
+		int numEntries;
+		char position_c[11];
+		char genNumber_c[6];
+		char used_c[2];
+		char* strtolPointer;
+		position_c[10]='\0';
+		genNumber_c[6]='\0';
+		used_c[1]='\0';
+		while(true){
+			// check whether the line is "trailer" (end of xref table)
+			int currentPosition=(int) file.tellg();
+			bool flag=true;
+			for(i=0; i<strlen(TRAIL); i++){
+				file.get(a);
+				if(a!=TRAIL[i]){
+					flag=false;
+					break;
+				}
+			}
+			if(!flag){
+				file.seekg(currentPosition, ios_base::beg);
+			}else{
+				if(!gotoEOL(1)){
+					cout << "Error in reading 'trailer' row" << endl;
+					return -1;
+				}else{
+					break;
+				}
+			}
+			if(readInt(&objNumber) && readInt(&numEntries) && gotoEOL(1)){
+				for(i=0; i<numEntries; i++){
+					// xref table content: (offset 10 bytes) (genNumber 5 bytes) (n/f)(EOL 2 bytes)
+					int currentObjNumber=objNumber+i;
+					if(currentObjNumber>=ReferenceSize){
+						break;
+					}
+				  file.read(position_c, 10);
+					file.get(a);
+					file.read(genNumber_c, 5);
+					file.get(a);
+					file.read(used_c, 1);
+					file.get(a);
+					file.get(a);
+					// cout << offset_c << " | " << genNumber_c << endl;
+					// check a is CR of LF
+					if(!isEOL(a)){
+						return -1;
+					}
+					if(Reference[currentObjNumber]->objNumber>=0){
+						// reference is already read
+						printf("XRef #%d is already read\n", currentObjNumber);
+						continue;
+					}
+					Reference[currentObjNumber]->objNumber=currentObjNumber;
+					// convert string to integer
+					Reference[currentObjNumber]->position=strtol(position_c, &strtolPointer, 10);
+					if(strtolPointer!=&position_c[10]){
+						cout << "Error in parsing position" << endl;
+						return -1;
+					}
+					Reference[currentObjNumber]->genNumber=strtol(genNumber_c, &strtolPointer, 10);
+					if(strtolPointer!=&genNumber_c[5]){
+						cout << "Error in parsing genNumber" << endl;
+						return -1;
+					}
+					// convert used (n/f)
+					if(strcmp(used_c, "n")==0){
+						Reference[currentObjNumber]->used=true;
+					}else if(strcmp(used_c, "f")==0){
+						Reference[currentObjNumber]->used=false;
+					}else{
+						cout << "Invalid n/f value" << endl;
+						return -1;
+					}					
+				}
+			}else{
+				cout << "Error in reading xref table header" << endl;
+				return -1;
+			}
+		}
+		// read Trailer dictionary
+		if(!readDict(&trailer2)){
+			return -1;
+		}
+		// if XRefStm entry exists in the Trailer dictionary, read it
+		int XRefStmType;
+		void* XRefStmValue;
+		if(trailer2.Read((unsigned char*)"XRefStm", (void**)&XRefStmValue, &XRefStmType) && XRefStmType==Type::Int){
+			int XRefStmPosition=*((int*)XRefStmValue);
+			cout << "Read hybrid XRef stream" << endl;
+			if(readXRef(XRefStmPosition)<0){
+				return -1;
+			}
+		}
+		// check Prev key exists
+		int PrevType;
+		void* PrevValue;
+		if(trailer2.Read((unsigned char*)"Prev", (void**)&PrevValue, &PrevType) && PrevType==Type::Int){
+			return *((int*)PrevValue);
+		}
+	}else{
+		// read xref stream
+		Stream XRefStm;
+		if(!readStream(&XRefStm)){
+			return -1;
+		}
+		printf("XRef stream: objNumber %d, genNumber %d\n",
+					 XRefStm.objNumber,
+					 XRefStm.genNumber);
+		/*
+		cout << "XRef data:" << endl;
+		for(i=0; i<XRefStm.length; i++){
+			printf("%02x ", (unsigned int)XRefStm.data[i]);
+		}
+		cout << endl;*/
+		
+		// decode xref stream
+		if(!XRefStm.Decode()){
+			return -1;
+		}
+
+		// read W
+		int WType;
+		void* WValue;
+		int field[3];
+		int sumField=0;
+		int fieldType;
+		if(XRefStm.StmDict.Read((unsigned char*)"W", (void**)&WValue, &WType) && WType==Type::Array){
+			Array* WArray=(Array*)WValue;
+			void* fieldValue;
+			for(i=0; i<3; i++){
+				if(WArray->Read(i, (void**)&fieldValue, &fieldType)){
+					if(fieldType==Type::Int){
+						field[i]=*((int*)fieldValue);
+						sumField+=field[i];
+					}else{
+						cout << "Error: invalid type of W element" << endl;
+						return 0;
+					}
+				}else{
+					cout << "Error in reading W array" << endl;
+					return 0;
+				}
+			}
+		}else{
+			cout << "Error in reading W" << endl;
+			return 0;
+		}
+
+		// read Index
+		int firstIndex, numEntries;
+		if(XRefStm.StmDict.Search((unsigned char*)"Index")>=0){
+			int IndexType;
+			void* IndexValue;
+			if(XRefStm.StmDict.Read((unsigned char*)"Index", (void**)&IndexValue, &IndexType) && IndexType==Type::Array){
+				Array* IndexArray=(Array*)IndexValue;
+				void* IndexElementValue;
+				int IndexElementType;
+				if(IndexArray->Read(0, (void**)&IndexElementValue, &IndexElementType)){
+					if(IndexElementType==Type::Int){
+						firstIndex=*((int*)IndexElementValue);
+					}else{
+						cout << "Error: invalid type of Index element" << endl;
+						return 0;
+					}
+				}else{
+					cout << "Error in reading Index element" << endl;
+					return 0;
+				}
+				if(IndexArray->Read(1, (void**)&IndexElementValue, &IndexElementType)){
+					if(IndexElementType==Type::Int){
+						numEntries=*((int*)IndexElementValue);
+					}else{
+						cout << "Error: invalid type of Index element" << endl;
+						return 0;
+					}
+				}else{
+					cout << "Error in reading Index element" << endl;
+					return 0;
+				}
+			}else{
+				cout << "Error in reading Index array" << endl;
+				return 0;
+			}
+		}else{
+			// if Index does not exist, the default value is [0 Size]
+			int SizeType;
+			void* SizeValue;
+			firstIndex=0;
+			if(XRefStm.StmDict.Read((unsigned char*)"Size", (void**)&SizeValue, &SizeType) && SizeType==Type::Int){
+				numEntries=*((int*)SizeValue);
+			}else{
+				cout << "Error in reading Size" << endl;
+				return 0;
+			}
+		}
+		
+		printf("Decoded XRef: %d bytes, %d entries\n", XRefStm.dlength, numEntries);
+		/*
+		for(i=0; i<XRefStm.dlength; i++){
+			printf("%02x ", (unsigned int)XRefStm.decoded[i]);
+			if((i+1)%sumField==0){
+				cout << endl;
+			}
+			}*/
+
+		// record the information to Reference
+		if(XRefStm.dlength/sumField!=numEntries){
+			cout << "Error: size mismatch in decoded data" << endl;
+			return 0;
+		}
+		int XRefStmIndex=0;
+		int XRefStmValue[3];
+		for(i=0; i<numEntries; i++){
+			for(j=0; j<3; j++){
+				XRefStmValue[j]=0;
+				for(k=0; k<field[j]; k++){
+					XRefStmValue[j]=256*XRefStmValue[j]+(unsigned int)XRefStm.decoded[XRefStmIndex];
+					XRefStmIndex++;
+				}
+			}
+			// printf("%d %d %d\n", XRefStmValue[0], XRefStmValue[1], XRefStmValue[2]);
+			int currentObjNumber=i+firstIndex;
+			if(Reference[currentObjNumber]->objNumber>=0){
+				printf("XRef #%d is already read\n", currentObjNumber);
+				continue;
+			}
+			switch(XRefStmValue[0]){
+			case 0:
+				// free object
+				Reference[currentObjNumber]->used=false;
+				Reference[currentObjNumber]->objNumber=currentObjNumber;
+				Reference[currentObjNumber]->position=XRefStmValue[1];
+				Reference[currentObjNumber]->genNumber=XRefStmValue[2];
+				break;
+			case 1:
+				// used object
+				Reference[currentObjNumber]->used=true;
+				Reference[currentObjNumber]->objNumber=currentObjNumber;
+				Reference[currentObjNumber]->position=XRefStmValue[1];
+				Reference[currentObjNumber]->genNumber=XRefStmValue[2];
+				break;
+			case 2:
+				// object in compressed object
+				Reference[currentObjNumber]->used=true;
+				Reference[currentObjNumber]->objStream=true;
+				Reference[currentObjNumber]->objNumber=currentObjNumber;
+				Reference[currentObjNumber]->objStreamNumber=XRefStmValue[1];
+				Reference[currentObjNumber]->objStreamIndex=XRefStmValue[2];
+			}
+		}
+
+		// check Prev key exists
+		int PrevType;
+		void* PrevValue;
+		if(XRefStm.StmDict.Read((unsigned char*)"Prev", (void**)&PrevValue, &PrevType) && PrevType==Type::Int){
+			return *((int*)PrevValue);
+		}
+	}
+	return 0;
+}
+
+
 bool PDFParser::readObjID(int* objNumber, int* genNumber){
-	// Indirect object identifier raw: %d %d obj
+	// Indirect object identifier row: %d %d obj
 	readInt(objNumber);
 	readInt(genNumber);
 	char buffer[32];
@@ -382,7 +750,7 @@ bool PDFParser::readObjID(int* objNumber, int* genNumber){
 }
 
 bool PDFParser::readRefID(int* objNumber, int* genNumber){
-	// Indirect object reference raw: %d %d obj
+	// Indirect object reference row: %d %d R
 	readInt(objNumber);
 	readInt(genNumber);
 	char buffer[32];
@@ -646,6 +1014,7 @@ bool PDFParser::readArray(Array* array){
 				break;
 			case Type::Null:
 				readToken(buffer, 128);
+				array->Append(NULL, type);
 				break;
 			case Type::String:
 			  stringValue=readString();
@@ -903,6 +1272,77 @@ unsigned char* PDFParser::readString(){
 		hexadecimal[value1.length()/2]=='\0';
 		return hexadecimal;
 	}
+}
+
+bool PDFParser::readStream(Stream* stm){
+	// read obj id
+	if(!readObjID(&(stm->objNumber), &(stm->genNumber))){
+		return false;
+	}
+	// read Stream dictionary
+	if(!readDict(&(stm->StmDict))){
+		return false;
+	}
+	// 'stream' row
+	skipSpaces();
+	int i;
+	bool flag=false;
+	char a;
+	for(i=0; i<strlen(STM); i++){
+		file.get(a);
+		if(a!=STM[i]){
+			flag=true;
+			break;
+		}
+	}
+	if(flag){
+		cout << "Error in reading 'stream'" << endl;
+		cout << a << endl;
+		return false;
+	}
+	// here, EOL should be CRLF or LF, not including CR
+	file.get(a);
+	if(!isEOL(a)){
+		cout << "Error in 'stream' row" << endl;
+		return false;
+	}
+	if(a==CR){
+		file.get(a);
+		if(a!=LF){
+			cout << "Invalid EOL in 'stream' row" << endl;
+			return false;
+		}
+	}
+	void* lenValue;
+	int lenType;
+	if(stm->StmDict.Read((unsigned char*)"Length", (void**)&lenValue, &lenType) && lenType==Type::Int){
+		int length=*((int*)lenValue);
+		printf("Stream length: %d\n", length);
+		stm->data=new unsigned char[length];
+		stm->length=length;
+		unsigned char a2;
+		for(i=0; i<length; i++){
+			a2=(unsigned char)file.get();
+			stm->data[i]=a2;
+		}
+		gotoEOL();
+		// the last row should be 'endstream'
+		flag=false;
+		for(i=0; i<strlen(ESTM); i++){
+			file.get(a);
+			if(a!=ESTM[i]){
+				flag=true;
+				break;
+			}
+		}
+		if(flag){
+			return false;
+		}
+	}else{
+		return false;
+	}
+			
+	return true;
 }
 
 int PDFParser::judgeType(){
