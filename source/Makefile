@@ -10,7 +10,7 @@ readPDF.o: readPDF_main.o $(lib)
 .cpp.o:
 	$(CXX) -c $<
 
-readPDF_main.cpp: PDFParser.hpp PDFVersion.hpp Objects.hpp
-PDFParser.cpp: PDFParser.hpp PDFVersion.hpp Objects.hpp
-PDFVersion.cpp: PDFVersion.hpp
-Objects.cpp: Objects.hpp
+readPDF_main.o: PDFParser.hpp PDFVersion.hpp Objects.hpp
+PDFParser.o: PDFParser.hpp PDFVersion.hpp Objects.hpp
+PDFVersion.o: PDFVersion.hpp
+Objects.o: Objects.hpp

@@ -14,13 +14,6 @@ private:
 	int fileSize;
 	int offset;
 	int lastXRef;
-	PDFVersion V_header;
-	Dictionary trailer;
-	Indirect** Reference;
-	int ReferenceSize;
-public:
-	PDFParser(char* fileName);
-	bool hasError();
 	bool findHeader();
 	bool isSpace(char a);
 	bool isEOL(char a);
@@ -48,4 +41,18 @@ public:
 	bool skipSpaces();
 	bool readDict(Dictionary* dict);
 	bool readStream(Stream* stm);
+	bool readStream(Stream* stm, bool outputError);
+	bool investigatePages(Indirect* pages, int* pageCount);
+public:
+	PDFParser(char* fileName);
+	PDFVersion V_header;
+	PDFVersion V_catalog;
+	Dictionary trailer;
+	Indirect** Reference;
+	int ReferenceSize;
+	Page** Pages;
+	int PagesSize;
+	bool hasError();
+	bool readRefObj(Indirect* ref, void** object, int* objType);
+	bool readPage(int index, unsigned char* key, void** value, int* type, bool inheritable);
 };

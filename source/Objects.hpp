@@ -90,6 +90,14 @@ public:
 	bool Decode();
 };
 
+class Page{
+public:
+	Page();
+	Indirect* Parent;
+	Dictionary* PageDict;
+};
+
+
 char* printObj(void* value, int type);
 
 int unsignedstrlen(unsigned char* a);

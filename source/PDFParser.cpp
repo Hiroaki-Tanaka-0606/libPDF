@@ -114,6 +114,7 @@ PDFParser::PDFParser(char* fileName):
 			return;
 		}
 	}
+	cout << endl;
 	for(i=0; i<ReferenceSize; i++){
 		if(i!=Reference[i]->objNumber){
 			printf("Error: missing ref #%d\n", i);
@@ -133,7 +134,323 @@ PDFParser::PDFParser(char* fileName):
 			cout << endl;
 		}
 	}
+
+	// find /Version in Document catalog dictrionary
+	cout << "Find /Version in Document catalog dictionary" << endl;
+	int dCatalogType;
+	void* dCatalogValue;
+	Indirect* dCatalogRef;
+	Dictionary* dCatalog;
+	if(trailer.Read((unsigned char*)"Root", (void**)&dCatalogValue, &dCatalogType) && dCatalogType==Type::Indirect){
+		dCatalogRef=(Indirect*)dCatalogValue;
+		if(readRefObj(dCatalogRef, (void**)&dCatalogValue, &dCatalogType) && dCatalogType==Type::Dict){
+			dCatalog=(Dictionary*)dCatalogValue;
+			int versionType;
+			void* versionValue;
+			if(dCatalog->Read((unsigned char*)"Version", (void**)&versionValue, &versionType) && versionType==Type::Name){
+				unsigned char* version=(unsigned char*)versionValue;
+				V_catalog.set((char*)version);
+				V_catalog.print();
+				printf("Version in document catalog dictionary is %s\n", V_catalog.v);
+			}else{
+				cout << "No version information in document catalog dictionary" << endl;
+			}
+		}else{
+			cout << "Error in read Document catalog dictionary" << endl;
+			error=true;
+			return;
+		}
+	}else{
+		cout << "Error in Document catalog dictionary" << endl;
+		error=true;
+		return;
+	}
+	cout << endl;
+	
+	cout << "Read page information" << endl;
+	// construct Pages array
+	Indirect* rootPagesRef;
+	Dictionary* rootPages;
+	void* rootPagesValue;
+	int rootPagesType;
+	if(dCatalog->Read((unsigned char*)"Pages", (void**)&rootPagesValue, &rootPagesType) && rootPagesType==Type::Indirect){
+		rootPagesRef=(Indirect*)rootPagesValue;
+		if(readRefObj(rootPagesRef, (void**)&rootPagesValue, &rootPagesType) && rootPagesType==Type::Dict){
+			rootPages=(Dictionary*)rootPagesValue;
+			// rootPages->Print();
+		}else{
+			cout << "Error in read rootPages reference" << endl;
+			error=true;
+			return;
+		}
+	}else{
+		cout << "Error in Pages" << endl;
+		error=true;
+		return;
+	}
+	void* totalPagesValue;
+	int totalPages;
+	int totalPagesType;
+	if(rootPages->Read((unsigned char*)"Count", (void**)&totalPagesValue, &totalPagesType) && totalPagesType==Type::Int){
+		totalPages=*((int*)totalPagesValue);
+		printf("Total pages: %d\n", totalPages);
+	}else{
+		cout << "Error in read count in rootPages" << endl;
+		error=true;
+		return;
+	}
+	Pages=new Page*[totalPages];
+	PagesSize=totalPages;
+	int pageCount=0;
+	if(!investigatePages(rootPagesRef, &pageCount)){
+		error=true;
+		return;
+	}
 }
+
+bool PDFParser::investigatePages(Indirect* pagesRef, int* pageCount){
+	void* pagesValue;
+	int pagesType;
+	Dictionary* pages;
+	if(readRefObj(pagesRef, (void**)&pagesValue, &pagesType) && pagesType==Type::Dict){
+		pages=(Dictionary*)pagesValue;
+	}else{
+		cout << "Error in read pages reference" << endl;
+		return false;
+	}
+	
+	void* kidsValue;
+	int kidsType;
+	Array* kids;
+	if(pages->Read((unsigned char*)"Kids", (void**)&kidsValue, &kidsType) && kidsType==Type::Array){
+		kids=(Array*)kidsValue;
+		int kidsSize=kids->getSize();
+		void* kidValue;
+		int kidType;
+		Indirect* kidRef;
+		Dictionary* kid;
+		int i;
+		for(i=0; i<kidsSize; i++){
+			if(kids->Read(i, (void**)&kidValue, &kidType) && kidType==Type::Indirect){
+				kidRef=(Indirect*)kidValue;
+				if(readRefObj(kidRef, (void**)&kidValue, &kidType) && kidType==Type::Dict){
+					kid=(Dictionary*)kidValue;
+					// kid->Print();
+					void* kidTypeValue;
+					unsigned char* kidType;
+					int kidTypeType;
+					if(kid->Read((unsigned char*)"Type", (void**)&kidTypeValue, &kidTypeType) && kidTypeType==Type::Name){
+						kidType=(unsigned char*)kidTypeValue;
+						if(unsignedstrcmp(kidType, (unsigned char*)"Page")){
+							// cout << "Page" << endl;
+							Pages[*pageCount]=new Page();
+							Pages[*pageCount]->Parent=pagesRef;
+							Pages[*pageCount]->PageDict=kid;
+							*pageCount=*pageCount+1;
+						}else if(unsignedstrcmp(kidType, (unsigned char*)"Pages")){
+							// cout << "Pages" << endl;
+							if(!investigatePages(kidRef, pageCount)){
+								return false;
+							}
+						}
+					}
+				}else{
+					cout << "Error in read kid" << endl;
+					return false;
+				}
+			}else{
+				cout << "Error in read kid reference" << endl;
+				return false;
+			}
+		}
+	}else{
+		cout << "Error in read Kids" << endl;
+		return false;
+	}
+
+	
+	return true;
+}
+
+
+bool PDFParser::readPage(int index, unsigned char* key, void** value, int* type, bool inheritable){
+	Page* page=Pages[index];
+	if(page->PageDict->Search(key)<0){
+		// key not found
+		if(inheritable){
+			Indirect* parentRef=page->Parent;
+			void* parentValue;
+			int parentType;
+			Dictionary* parent;
+			while(true){
+				if(readRefObj(parentRef, (void**)&parentValue, &parentType) && parentType==Type::Dict){
+					parent=(Dictionary*)parentValue;
+					// parent->Print();
+					if(parent->Search(key)>=0){
+						parent->Read(key, value, type);
+						return true;
+					}
+					if(parent->Read((unsigned char*)"Parent", (void**)&parentValue, &parentType) && parentType==Type::Indirect){
+						parentRef=(Indirect*)parentValue;
+					}else{
+						cout << "Parent not found" << endl;
+						return false;
+					}
+				}
+			}
+		}else{
+			return false;
+		}
+	}else{
+		page->PageDict->Read(key, value, type);
+		return true;
+	}
+}
+
+
+bool PDFParser::readRefObj(Indirect* ref, void** object, int* objType){
+	int objNumber=ref->objNumber;
+	int genNumber=ref->genNumber;
+	printf("Read indirect reference: objNumber %d, genNumber %d\n", objNumber, genNumber);
+	Indirect* refInRef=Reference[objNumber];
+	if(refInRef->objNumber!=objNumber || refInRef->genNumber!=genNumber){
+		printf("Error: obj and gen numbers in XRef (%d, %d) is different from arguments (%d, %d)\n", refInRef->objNumber, refInRef->genNumber, objNumber, genNumber);
+		return false;
+	}
+	if(refInRef->objStream){
+		cout << "The object is in an object stream" << endl;
+		/*
+		Stream* objStream;
+		Indirect objStreamReference;
+		objStreamReference.objNumber=refInRef->objStreamNumber;
+		objStreamReference.genNumber=0;
+		void* objStreamValue;
+		int objStreamType;
+		if(readRefObj(&objStreamReference, (void**)&objStreamValue, &objStreamType) && objStreamType==Type::Stream){
+			objStream=(Stream*)objStreamValue;
+		}else{
+			cout << "Error in read an object stream" << endl;
+			return false;
+		}
+		objStream->Decode();*/
+	}else{
+		printf("The object is at %d\n", refInRef->position);
+		file.seekg(refInRef->position+offset, ios_base::beg);
+		int objNumber2;
+		int genNumber2;
+		if(!readObjID(&objNumber2, &genNumber2)){
+			cout << "Error in reading object ID" << endl;
+			return false;
+		}
+		if(objNumber2!=objNumber || genNumber2!=genNumber){
+			cout << "Error: object or generation numbers are different" << endl;
+			return false;
+		}
+		int type=judgeType();
+		bool* boolValue;
+		int* intValue;
+		double* realValue;
+		unsigned char* stringValue;
+		unsigned char* nameValue;
+		Array* arrayValue;
+		Stream* streamValue;
+		Dictionary* dictValue;
+		int currentPos;
+		switch(type){
+		case Type::Bool:
+			boolValue=new bool();
+			if(readBool(boolValue)){
+				*objType=Type::Bool;
+				*object=(void*)boolValue;
+			}else{
+				cout << "Error in read bool" << endl;
+				return false;
+			}
+			break;
+		case Type::Int:
+			intValue=new int();
+			if(readInt(intValue)){
+				*objType=Type::Int;
+				*object=(void*)intValue;
+			}else{
+				cout << "Error in read int" << endl;
+				return false;
+			}
+			break;
+		case Type::Real:
+			realValue=new double();
+			if(readReal(realValue)){
+				*objType=Type::Real;
+				*object=(void*)realValue;
+			}else{
+				cout << "Error in read real" << endl;
+				return false;
+			}
+			break;
+		case Type::String:
+			stringValue=readString();
+			if(stringValue!=NULL){
+				*objType=Type::String;
+				*object=(void*)stringValue;
+			}else{
+				cout << "Error in read string" << endl;
+				return false;
+			}
+			break;
+		case Type::Name:
+			nameValue=readName();
+			if(nameValue!=NULL){
+				*objType=Type::Name;
+				*object=(void*)nameValue;
+			}else{
+				cout << "Error in read name" << endl;
+				return false;
+			}
+			break;
+		case Type::Array:
+			arrayValue=new Array();
+			if(readArray(arrayValue)){
+				*objType=Type::Array;
+				*object=(void*)arrayValue;
+			}else{
+				cout << "Error in read array" << endl;
+				return false;
+			}
+			break;
+		case Type::Null:
+			*objType=Type::Null;
+			*object=NULL;
+			break;
+		case Type::Dict:
+			// it can be a Dictionary and a Stream
+			currentPos=(int)file.tellg();
+			file.seekg(refInRef->position+offset, ios_base::beg);
+			streamValue=new Stream();
+			if(readStream(streamValue, false)){
+				*objType=Type::Stream;
+				*object=(void*)streamValue;
+			}else{
+				file.seekg(currentPos, ios_base::beg);
+				dictValue=new Dictionary();
+				if(readDict(dictValue)){
+					*objType=Type::Dict;
+					*object=(void*)dictValue;
+				}else{
+					cout << "Error in read dictionary or stream" << endl;
+					return false;
+				}
+			}
+			break;
+		default:
+			cout << "Error: invalid type" << endl;
+			return false;
+		}
+	}
+
+	return true;
+}
+
+
 
 bool PDFParser::hasError(){
 	return error;
@@ -575,11 +892,11 @@ int PDFParser::readXRef(int position){
 					 XRefStm.objNumber,
 					 XRefStm.genNumber);
 		/*
-		cout << "XRef data:" << endl;
-		for(i=0; i<XRefStm.length; i++){
+			cout << "XRef data:" << endl;
+			for(i=0; i<XRefStm.length; i++){
 			printf("%02x ", (unsigned int)XRefStm.data[i]);
-		}
-		cout << endl;*/
+			}
+			cout << endl;*/
 		
 		// decode xref stream
 		if(!XRefStm.Decode()){
@@ -664,10 +981,10 @@ int PDFParser::readXRef(int position){
 		
 		printf("Decoded XRef: %d bytes, %d entries\n", XRefStm.dlength, numEntries);
 		/*
-		for(i=0; i<XRefStm.dlength; i++){
+			for(i=0; i<XRefStm.dlength; i++){
 			printf("%02x ", (unsigned int)XRefStm.decoded[i]);
 			if((i+1)%sumField==0){
-				cout << endl;
+			cout << endl;
 			}
 			}*/
 
@@ -1275,6 +1592,9 @@ unsigned char* PDFParser::readString(){
 }
 
 bool PDFParser::readStream(Stream* stm){
+	return readStream(stm, true);
+}
+bool PDFParser::readStream(Stream* stm, bool outputError){
 	// read obj id
 	if(!readObjID(&(stm->objNumber), &(stm->genNumber))){
 		return false;
@@ -1296,20 +1616,26 @@ bool PDFParser::readStream(Stream* stm){
 		}
 	}
 	if(flag){
-		cout << "Error in reading 'stream'" << endl;
-		cout << a << endl;
+		if(outputError){
+			cout << "Error in reading 'stream'" << endl;
+			cout << a << endl;
+		}
 		return false;
 	}
 	// here, EOL should be CRLF or LF, not including CR
 	file.get(a);
 	if(!isEOL(a)){
-		cout << "Error in 'stream' row" << endl;
+		if(outputError){
+			cout << "Error in 'stream' row" << endl;
+		}
 		return false;
 	}
 	if(a==CR){
 		file.get(a);
 		if(a!=LF){
-			cout << "Invalid EOL in 'stream' row" << endl;
+			if(outputError){
+				cout << "Invalid EOL in 'stream' row" << endl;
+			}
 			return false;
 		}
 	}

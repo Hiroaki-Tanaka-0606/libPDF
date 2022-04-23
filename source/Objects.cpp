@@ -348,10 +348,19 @@ int decodeData(unsigned char* encoded, unsigned char* filter, Dictionary* parm, 
 	int zStatus;
 	int decodedLength;
 
+	/* for debug */
+	for(i=0; i<remainingData; i++){
+		printf("%02x ", (unsigned int)encoded[i]);
+	}
+	cout << endl;
+	
+
 	if(unsignedstrcmp(filter, (unsigned char*)FLATE)){
 		// cout << "Flate" << endl;
 		if(parm!=NULL){
 			parm->Print();
+		}else{
+			cout << "No parameters given" << endl;
 		}
 
 		// zlib preparation
@@ -489,4 +498,7 @@ int PNGPredictor(unsigned char** pointer, int length, Dictionary* parm){
 	}
 	*pointer=&restored[0];
 	return numRows*columns;
+}
+
+Page::Page(){
 }
