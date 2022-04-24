@@ -49,6 +49,7 @@ public:
 	int Search(unsigned char* key);
 	bool Read(unsigned char* key, void** value, int* type);
 	void Merge(Dictionary dict2);
+	int getSize();
 };
 
 class Array{
@@ -77,6 +78,13 @@ public:
 	Indirect();
 };
 
+class uchar{
+public:
+	int length;
+	unsigned char* data;
+	uchar();
+};
+
 class Stream{
 public:
 	int objNumber;
@@ -102,6 +110,7 @@ char* printObj(void* value, int type);
 
 int unsignedstrlen(unsigned char* a);
 bool unsignedstrcmp(unsigned char* a, unsigned char* b);
+void unsignedstrcpy(unsigned char* dest, unsigned char* data);
 
 int decodeData(unsigned char* encoded, unsigned char* filter, Dictionary* parm, int encodedLength, unsigned char** decoded);
 

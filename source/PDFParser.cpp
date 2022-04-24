@@ -30,7 +30,8 @@ using namespace std;
 PDFParser::PDFParser(char* fileName):
 	// Member initializer list
 	file(fileName),
-	error(false)
+	error(false),
+	encrypted(false)
 {
 	if(!file){
 		cout << "Error in opening the input file" << endl;
@@ -115,6 +116,7 @@ PDFParser::PDFParser(char* fileName):
 		}
 	}
 	cout << endl;
+	/*
 	for(i=0; i<ReferenceSize; i++){
 		if(i!=Reference[i]->objNumber){
 			printf("Error: missing ref #%d\n", i);
@@ -133,7 +135,7 @@ PDFParser::PDFParser(char* fileName):
 		}else{
 			cout << endl;
 		}
-	}
+		}*/
 
 	// find /Version in Document catalog dictrionary
 	cout << "Find /Version in Document catalog dictionary" << endl;
@@ -164,6 +166,47 @@ PDFParser::PDFParser(char* fileName):
 		cout << "Error in Document catalog dictionary" << endl;
 		error=true;
 		return;
+	}
+	cout << endl;
+
+	// find /Encrypt dictionary in Document catalog dictionary
+	cout << "Find /Encrypt in Document catalog dictionary" << endl;
+	int encryptType;
+	void* encryptValue;
+	if(trailer.Search((unsigned char*)"Encrypt")>=0){
+		encrypted=true;
+		cout << "This document is encrypted" << endl;
+		int IDType;
+		void* IDValue;
+		Array* ID;
+		trailer.Read((unsigned char*)"ID", (void**)&IDValue, &IDType);
+		if(IDType==Type::Array){
+			ID=(Array*)IDValue;
+		}else{
+			cout << "Error in read ID" << endl;
+			error=true;
+			return;
+		}
+		trailer.Read((unsigned char*)"Encrypt", (void**)&encryptValue, &encryptType);
+		if(encryptType==Type::Indirect){
+			Indirect* encryptRef=(Indirect*)encryptValue;
+			if(readRefObj(encryptRef, (void**)&encryptValue, &encryptType) && encryptType==Type::Dict){
+				encrypt=(Dictionary*)encryptValue;
+			}else{
+				cout << "Error in read encrypt reference" << endl;
+				error=true;
+				return;
+			}
+		}else if(encryptType==Type::Dict){
+			encrypt=(Dictionary*)encryptValue;
+		}else{
+			cout << "Invalid type of /Encrypt" << endl;
+			error=true;
+			return;
+		}
+		encryptObj=new Encryption(encrypt, ID);
+	}else{
+		cout << "This document is not encrypted" << endl;
 	}
 	cout << endl;
 	
@@ -350,7 +393,7 @@ bool PDFParser::readRefObj(Indirect* ref, void** object, int* objType){
 		bool* boolValue;
 		int* intValue;
 		double* realValue;
-		unsigned char* stringValue;
+		uchar* stringValue;
 		unsigned char* nameValue;
 		Array* arrayValue;
 		Stream* streamValue;
@@ -781,6 +824,7 @@ int PDFParser::readXRef(int position){
 		cout << "Read XRef table" << endl;
 		// skip "xref" row
 		readLine(buffer, 32);
+		// cout << buffer << endl;
 		int objNumber;
 		int numEntries;
 		char position_c[11];
@@ -811,7 +855,11 @@ int PDFParser::readXRef(int position){
 					break;
 				}
 			}
-			if(readInt(&objNumber) && readInt(&numEntries) && gotoEOL(1)){
+			bool a1=readInt(&objNumber);
+			bool a2=readInt(&numEntries);
+			bool a3=gotoEOL(1);
+			// cout << a1 << a2 << a3 << endl;
+			if(a1 && a2 && a3){
 				for(i=0; i<numEntries; i++){
 					// xref table content: (offset 10 bytes) (genNumber 5 bytes) (n/f)(EOL 2 bytes)
 					int currentObjNumber=objNumber+i;
@@ -1189,7 +1237,7 @@ bool PDFParser::readDict(Dictionary* dict){
 			int type=judgeType();
 			// printf("Name: %s, Type: %d\n", name, type);
 			char buffer[128];
-			unsigned char* stringValue;
+			uchar* stringValue;
 			int* intValue;
 			bool* boolValue;
 			double* realValue;
@@ -1294,7 +1342,7 @@ bool PDFParser::readArray(Array* array){
 			int type=judgeType();
 			// printf("Type: %d\n", type);
 			char buffer[128];
-			unsigned char* stringValue;
+			uchar* stringValue;
 			int* intValue;
 			bool* boolValue;
 			double* realValue;
@@ -1472,7 +1520,7 @@ unsigned char* PDFParser::readName(){
 }
 
 
-unsigned char* PDFParser::readString(){
+uchar* PDFParser::readString(){
 	if(!skipSpaces()){
 		return NULL;
 	}
@@ -1501,46 +1549,47 @@ unsigned char* PDFParser::readString(){
 		}
 	}
 	if(isLiteral){
-		unsigned char* literal=new unsigned char[value1.length()+1];
+		uchar* literal=new uchar();
+	  literal->data=new unsigned char[value1.length()+1];
 		int i=0;
 		int j=0;
 		for(i=0; i<value1.length(); i++){
 			if(value1[i]=='\\'){
 				// escape
 				if(value1[i+1]=='n'){
-					literal[j]='\n';
+					literal->data[j]='\n';
 					j++;
 					i++;
 				}else if(value1[i+1]=='r'){
-					literal[j]='\r';
+					literal->data[j]='\r';
 					j++;
 					i++;
 				}else if(value1[i+1]=='t'){
-					literal[j]='\t';
+					literal->data[j]='\t';
 					j++;
 					i++;
 				}else if(value1[i+1]=='b'){
-					literal[j]='\b';
+					literal->data[j]='\b';
 					j++;
 					i++;
 				}else if(value1[i+1]=='f'){
-					literal[j]='\f';
+					literal->data[j]='\f';
 					j++;
 					i++;
 				}else if(value1[i+1]=='('){
-					literal[j]='(';
+					literal->data[j]='(';
 					j++;
 					i++;
 				}else if(value1[i+1]==')'){
-					literal[j]=')';
+					literal->data[j]=')';
 					j++;
 					i++;
 				}else if(value1[i+1]=='\\'){
-					literal[j]='\\';
+					literal->data[j]='\\';
 					j++;
 					i++;
 				}else if(value1[i+1]=='\r' || value1[i+1]=='\n'){
-					if(value1[i+1]=='\r' && value1[i+1]=='\n'){
+					if(value1[i+1]=='\r' && value1[i+2]=='\n'){
 						i+=2;
 					}else{
 						i++;
@@ -1562,31 +1611,34 @@ unsigned char* PDFParser::readString(){
 						code[l]=value1[i+1+l];
 					}
 					code[length]='\0';
-					literal[j]=(unsigned char)strtol(code, NULL, 8);
+					literal->data[j]=(unsigned char)strtol(code, NULL, 8);
 					i+=length;
 					j++;
 				}
 			}else{
-				literal[j]=(unsigned char)value1[i];
+				literal->data[j]=(unsigned char)value1[i];
 				j++;
 			}
 		}
-		literal[j]='\0';
+		literal->data[j]='\0';
+		literal->length=j;
 		return literal;
 	}else{
 		if(value1.length()%2==1){
 			value1+='0';
 		}
-		unsigned char* hexadecimal=new unsigned char[value1.length()/2+1];
+		uchar* hexadecimal=new uchar();
+		hexadecimal->data=new unsigned char[value1.length()/2+1];
 		int i;
 		char hex[3];
 		hex[2]='\0';
 		for(i=0; i<value1.length()/2; i++){
 			hex[0]=value1[i*2];
 			hex[1]=value1[i*2+1];
-			hexadecimal[i]=(unsigned char)strtol(hex, NULL, 16);
+			hexadecimal->data[i]=(unsigned char)strtol(hex, NULL, 16);
 		}
-		hexadecimal[value1.length()/2]=='\0';
+		hexadecimal->data[value1.length()/2]=='\0';
+		hexadecimal->length=value1.length()/2;
 		return hexadecimal;
 	}
 }

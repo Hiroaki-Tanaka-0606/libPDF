@@ -4,6 +4,8 @@
 #include <string>
 #include "PDFVersion.hpp"
 #include "Objects.hpp"
+#define INCLUDE_OBJECTS 1
+#include "Encryption.hpp"
 
 using namespace std;
 
@@ -37,7 +39,7 @@ private:
 	bool readToken(char* buffer, int n);
 	bool readArray(Array* array);
 	unsigned char* readName();
-	unsigned char* readString();
+  uchar* readString();
 	bool skipSpaces();
 	bool readDict(Dictionary* dict);
 	bool readStream(Stream* stm);
@@ -48,6 +50,9 @@ public:
 	PDFVersion V_header;
 	PDFVersion V_catalog;
 	Dictionary trailer;
+	Dictionary* encrypt;
+	Encryption* encryptObj;
+	bool encrypted;
 	Indirect** Reference;
 	int ReferenceSize;
 	Page** Pages;

@@ -140,6 +140,10 @@ void Array::Print(int indent){
 	}
 }
 
+int Dictionary::getSize(){
+	return values.size();
+}
+
 int Array::getSize(){
 	return values.size();
 }
@@ -166,7 +170,7 @@ Stream::Stream(){
 char* printObj(void* value, int type){
 	char* buffer=new char[256];
 	strcpy(buffer, "");
-	unsigned char* stringValue;
+	uchar* stringValue;
 	unsigned char* nameValue;
 	Indirect* indirectValue;
 	int len;
@@ -185,9 +189,9 @@ char* printObj(void* value, int type){
 		sprintf(buffer, "%10.3f", *((double*)value));
 		break;
 	case Type::String:
-	  stringValue=(unsigned char*)value;
-		len=unsignedstrlen(stringValue);
-		sprintf(buffer, "%-32s ... [L=%d]", stringValue, len);
+	  stringValue=(uchar*)value;
+		len=stringValue->length;
+		sprintf(buffer, "%-32s ... [L=%d]", stringValue->data, len);
 		break;
 	case Type::Name:
 	  nameValue=(unsigned char*)value;
@@ -217,6 +221,16 @@ int unsignedstrlen(unsigned char* a){
 		}
 	}
 }
+
+void unsignedstrcpy(unsigned char* dest, unsigned char* data){
+	int len=unsignedstrlen(data);
+	int i;
+	for(i=0; i<len; i++){
+		dest[i]=data[i];
+	}
+	dest[len]='\0';
+}
+		
 		
 bool Stream::Decode(){
 	// cout << "Decode" << endl;
@@ -348,11 +362,11 @@ int decodeData(unsigned char* encoded, unsigned char* filter, Dictionary* parm, 
 	int zStatus;
 	int decodedLength;
 
-	/* for debug */
+	/* for debug 
 	for(i=0; i<remainingData; i++){
 		printf("%02x ", (unsigned int)encoded[i]);
 	}
-	cout << endl;
+	cout << endl;*/
 	
 
 	if(unsignedstrcmp(filter, (unsigned char*)FLATE)){
@@ -501,4 +515,7 @@ int PNGPredictor(unsigned char** pointer, int length, Dictionary* parm){
 }
 
 Page::Page(){
+}
+
+uchar::uchar(){
 }
