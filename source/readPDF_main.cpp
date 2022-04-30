@@ -92,8 +92,29 @@ int main(int argc, char** argv){
 		Array* MediaBox;
 		if(PP.readPage(i, (unsigned char*)"MediaBox", (void**)&MediaBoxValue, &MediaBoxType, true) && MediaBoxType==Type::Array){
 			MediaBox=(Array*)MediaBoxValue;
+			cout << "MediaBox:" << endl;
 			MediaBox->Print();
 		}
+		void* AnnotsValue;
+		int AnnotsType;
+		Array* Annots;
+		if(PP.readPage(i, (unsigned char*)"Annots", (void**)&AnnotsValue, &AnnotsType, true)){
+			if(AnnotsType==Type::Array){
+				Annots=(Array*)AnnotsValue;
+				cout << "Annots(Direct):" << endl;
+				Annots->Print();
+			}else if(AnnotsType==Type::Indirect){
+				Indirect* AnnotsRef=(Indirect*)AnnotsValue;
+				if(PP.readRefObj(AnnotsRef, (void**)&AnnotsValue, &AnnotsType) && AnnotsType==Type::Array){
+					Annots=(Array*)AnnotsValue;
+					cout << "Annots(Indirect):" << endl;
+					Annots->Print();
+				}
+			}
+		}else{
+			cout << "No Annots" << endl;
+		}
+		/*
 		void* contentsValue;
 		int contentsType;
 		Indirect* contentsRef;
@@ -111,8 +132,14 @@ int main(int argc, char** argv){
 						contentRef=(Indirect*)contentValue;
 						if(PP.readRefObj(contentRef, (void**)&contentValue, &contentType) && contentType==Type::Stream){
 							Stream* content=(Stream*)contentValue;
+							if(PP.encrypted){
+								if(!PP.encryptObj->DecryptStream(content)){
+									cout << "Error in decrypting content" << endl;
+									return -1;
+								}
+							}
 							content->Decode();
-							printf("----\n%s\n----\n", content->decoded);
+							// printf("----\n%s\n----\n", content->decoded);
 						}
 					}
 				}
@@ -121,8 +148,14 @@ int main(int argc, char** argv){
 				if(PP.readRefObj(contentsRef, (void**)&contentsValue, &contentsType)){
 					if(contentsType==Type::Stream){
 						Stream* content=(Stream*)contentsValue;
+						if(PP.encrypted){
+							if(!PP.encryptObj->DecryptStream(content)){
+								cout << "Error in decrypting content" << endl;
+								return -1;
+							}
+						}
 						content->Decode();
-						printf("----\n%s\n----\n", content->decoded);
+						// printf("----\n%s\n----\n", content->decoded);
 					}else if(contentsType==Type::Array){
 						Array* contentsArray=(Array*)contentsValue;
 						int contentsSize=contentsArray->getSize();
@@ -136,7 +169,13 @@ int main(int argc, char** argv){
 								contentRef=(Indirect*)contentValue;
 								if(PP.readRefObj(contentRef, (void**)&contentValue, &contentType) && contentType==Type::Stream){
 									Stream* content=(Stream*)contentValue;
-									content->Decode();
+									if(PP.encrypted){
+										if(!PP.encryptObj->DecryptStream(content)){
+											cout << "Error in decrypting content" << endl;
+											return -1;
+										}
+									}
+									// content->Decode();
 									printf("----\n%s\n----\n", content->decoded);
 								}
 							}
@@ -145,7 +184,7 @@ int main(int argc, char** argv){
 				}
 			}
 			
-		}
+			}*/
 		cout << endl;
 	}
 	

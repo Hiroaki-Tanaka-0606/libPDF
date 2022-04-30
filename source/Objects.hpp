@@ -92,7 +92,9 @@ public:
 	Dictionary StmDict;
 	unsigned char* data;
 	unsigned char* decoded;
+	unsigned char* encrypted;
 	int length;
+	int elength;
 	int dlength;
 	Stream();
 	bool Decode();

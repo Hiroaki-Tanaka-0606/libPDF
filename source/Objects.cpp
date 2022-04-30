@@ -345,7 +345,7 @@ bool unsignedstrcmp(unsigned char* a, unsigned char* b){
 }
 
 int decodeData(unsigned char* encoded, unsigned char* filter, Dictionary* parm, int encodedLength, unsigned char** decoded){
-	printf("Filter: %s\n", filter);
+	// printf("Filter: %s\n", filter);
 
 	unsigned char inBuf[ZBUFSIZE];
 	unsigned char outBuf[ZBUFSIZE];
@@ -374,7 +374,7 @@ int decodeData(unsigned char* encoded, unsigned char* filter, Dictionary* parm, 
 		if(parm!=NULL){
 			parm->Print();
 		}else{
-			cout << "No parameters given" << endl;
+			// cout << "No parameters given" << endl;
 		}
 
 		// zlib preparation
@@ -401,17 +401,17 @@ int decodeData(unsigned char* encoded, unsigned char* filter, Dictionary* parm, 
 			
 				decodedData+=copyLength;
 				remainingData-=copyLength;
-				printf("Decompress %d bytes\n", copyLength);
+				// printf("Decompress %d bytes\n", copyLength);
 			}
 			
 			// decompress
 			zStatus=inflate(&z, Z_NO_FLUSH);
-			printf("Remaining output space: %d bytes\n", z.avail_out);
-			printf("Remaining input buffer: %d bytes\n", z.avail_in);
+			// printf("Remaining output space: %d bytes\n", z.avail_out);
+			// printf("Remaining input buffer: %d bytes\n", z.avail_in);
 			if(zStatus==Z_STREAM_END){
 				break;
 			}else if(zStatus==Z_OK){
-				cout << "inflate ok" << endl;
+				// cout << "inflate ok" << endl;
 			}else{
 				printf("inflate error: %s\n", z.msg);
 				return 0;

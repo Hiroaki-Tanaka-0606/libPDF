@@ -23,6 +23,7 @@
 #include <iostream>
 #include <cstring>
 #include <string>
+#include <sstream>
 #include <cstdlib>
 #include "PDFParser.hpp"
 
@@ -116,7 +117,7 @@ PDFParser::PDFParser(char* fileName):
 		}
 	}
 	cout << endl;
-	/*
+	
 	for(i=0; i<ReferenceSize; i++){
 		if(i!=Reference[i]->objNumber){
 			printf("Error: missing ref #%d\n", i);
@@ -135,7 +136,7 @@ PDFParser::PDFParser(char* fileName):
 		}else{
 			cout << endl;
 		}
-		}*/
+		}
 
 	// find /Version in Document catalog dictrionary
 	cout << "Find /Version in Document catalog dictionary" << endl;
@@ -252,6 +253,7 @@ PDFParser::PDFParser(char* fileName):
 }
 
 bool PDFParser::investigatePages(Indirect* pagesRef, int* pageCount){
+	cout << "INVEST" << endl;
 	void* pagesValue;
 	int pagesType;
 	Dictionary* pages;
@@ -274,6 +276,7 @@ bool PDFParser::investigatePages(Indirect* pagesRef, int* pageCount){
 		Dictionary* kid;
 		int i;
 		for(i=0; i<kidsSize; i++){
+			// printf("KID %d\n", i);
 			if(kids->Read(i, (void**)&kidValue, &kidType) && kidType==Type::Indirect){
 				kidRef=(Indirect*)kidValue;
 				if(readRefObj(kidRef, (void**)&kidValue, &kidType) && kidType==Type::Dict){
@@ -336,7 +339,7 @@ bool PDFParser::readPage(int index, unsigned char* key, void** value, int* type,
 					if(parent->Read((unsigned char*)"Parent", (void**)&parentValue, &parentType) && parentType==Type::Indirect){
 						parentRef=(Indirect*)parentValue;
 					}else{
-						cout << "Parent not found" << endl;
+						// cout << "Parent not found" << endl;
 						return false;
 					}
 				}
@@ -352,6 +355,7 @@ bool PDFParser::readPage(int index, unsigned char* key, void** value, int* type,
 
 
 bool PDFParser::readRefObj(Indirect* ref, void** object, int* objType){
+	int i;
 	int objNumber=ref->objNumber;
 	int genNumber=ref->genNumber;
 	printf("Read indirect reference: objNumber %d, genNumber %d\n", objNumber, genNumber);
@@ -362,7 +366,7 @@ bool PDFParser::readRefObj(Indirect* ref, void** object, int* objType){
 	}
 	if(refInRef->objStream){
 		cout << "The object is in an object stream" << endl;
-		/*
+		
 		Stream* objStream;
 		Indirect objStreamReference;
 		objStreamReference.objNumber=refInRef->objStreamNumber;
@@ -375,7 +379,112 @@ bool PDFParser::readRefObj(Indirect* ref, void** object, int* objType){
 			cout << "Error in read an object stream" << endl;
 			return false;
 		}
-		objStream->Decode();*/
+		if(encrypted){
+			cout << "Decrypt stream" << endl;
+			if(!encryptObj->DecryptStream(objStream)){
+				cout << "Error in decrypting stream" << endl;
+				return false;
+			}
+		}
+		objStream->Decode();
+
+		// get the offset
+		int First;
+		int FirstType;
+		void* FirstValue;
+		int N;
+		int NType;
+		void* NValue;
+		
+		int index=refInRef->objStreamIndex;
+		if(objStream->StmDict.Read((unsigned char*)"First", (void**)&FirstValue, &FirstType) && FirstType==Type::Int){
+			First=*((int*)FirstValue);
+		}else{
+			cout << "Error in read First" << endl;
+			return false;
+		}
+		if(objStream->StmDict.Read((unsigned char*)"N", (void**)&NValue, &NType) && NType==Type::Int){
+			N=*((int*)NValue);
+		}else{
+			cout << "Error in read N" << endl;
+			return false;
+		}
+		string data((char*)objStream->decoded, objStream->length);
+		istringstream is(data);
+		int positionInObjStream;
+		for(i=0; i<N; i++){
+			int v1, v2;
+			readInt(&v1, &is);
+			readInt(&v2, &is);
+			// printf("%d %d\n", v1, v2);
+			if(i==index){
+				if(v1==objNumber){
+					positionInObjStream=v2+First;
+					printf("object #%d is at %d\n", v1, positionInObjStream);
+					break;
+				}else{
+					printf("Error: objNumber mismatch %d %d\n", v1, objNumber);
+					return false;
+				}
+			}
+		}
+		is.seekg(positionInObjStream, ios_base::beg);
+		*objType=judgeType(&is);
+		switch(*objType){
+		case Type::Bool:
+			*object=new bool();
+			if(!readBool((bool*)*object, &is)){
+				cout << "Error in read bool" << endl;
+				return false;
+			}
+			break;
+		case Type::Int:
+			*object=new int();
+			if(!readInt((int*)*object, &is)){
+				cout << "Error in read int" << endl;
+				return false;
+			}
+			break;
+		case Type::Real:
+			*object=new double();
+			if(!readReal((double*)*object, &is)){
+				cout << "Error in read real" << endl;
+				return false;
+			}
+			break;
+		case Type::String:
+			*object=readString(&is);
+			if(*object==NULL){
+				cout << "Error in read string" << endl;
+				return false;
+			}
+			break;
+		case Type::Name:
+			*object=readName(&is);
+			if(*object==NULL){
+				cout << "Error in read name" << endl;
+				return false;
+			}
+			break;
+		case Type::Array:
+			*object=new Array();
+			if(!readArray((Array*)*object, &is)){
+				cout << "Error in read array" << endl;
+				return false;
+			}
+			break;
+		case Type::Dict:
+			*object=new Dictionary();
+			if(!readDict((Dictionary*)*object, &is)){
+				cout << "Error in read dict" << endl;
+				return false;
+			}
+			// ((Dictionary*)*object)->Print();
+			break;
+		default:
+			cout << "Error: invalid type" << endl;
+		}
+		cout << "ReadRefObj from object stream finished" << endl;
 	}else{
 		printf("The object is at %d\n", refInRef->position);
 		file.seekg(refInRef->position+offset, ios_base::beg);
@@ -390,6 +499,7 @@ bool PDFParser::readRefObj(Indirect* ref, void** object, int* objType){
 			return false;
 		}
 		int type=judgeType();
+		// cout << "Type: " << type << endl;
 		bool* boolValue;
 		int* intValue;
 		double* realValue;
@@ -488,6 +598,8 @@ bool PDFParser::readRefObj(Indirect* ref, void** object, int* objType){
 			cout << "Error: invalid type" << endl;
 			return false;
 		}
+		
+		cout << "ReadRefObj finished" << endl;
 	}
 
 	return true;
@@ -1115,11 +1227,14 @@ bool PDFParser::readObjID(int* objNumber, int* genNumber){
 }
 
 bool PDFParser::readRefID(int* objNumber, int* genNumber){
+	return readRefID(objNumber, genNumber, &file);
+}
+bool PDFParser::readRefID(int* objNumber, int* genNumber, istream* is){
 	// Indirect object reference row: %d %d R
-	readInt(objNumber);
-	readInt(genNumber);
+	readInt(objNumber, is);
+	readInt(genNumber, is);
 	char buffer[32];
-	if(!readToken(buffer, 32)){
+	if(!readToken(buffer, 32, is)){
 		return false;
 	}
 	if(strcmp(buffer, "R")!=0){
@@ -1133,8 +1248,11 @@ bool PDFParser::readRefID(int* objNumber, int* genNumber){
 }
 
 bool PDFParser::readInt(int* value){
+	return readInt(value, &file);
+}
+bool PDFParser::readInt(int* value, istream* is){
 	char buffer[32];
-	if(!readToken(buffer, 32)){
+	if(!readToken(buffer, 32, is)){
 		return false;
 	}
 	char* pointer;
@@ -1147,8 +1265,11 @@ bool PDFParser::readInt(int* value){
 }
 
 bool PDFParser::readBool(bool* value){
+	return readBool(value, &file);
+}
+bool PDFParser::readBool(bool* value, istream* is){
 	char buffer[32];
-	if(!readToken(buffer, 32)){
+	if(!readToken(buffer, 32, is)){
 		return false;
 	}
 	if(strcmp(buffer, "true")==0){
@@ -1162,8 +1283,11 @@ bool PDFParser::readBool(bool* value){
 }
 
 bool PDFParser::readReal(double* value){
+	return readReal(value, &file);
+}
+bool PDFParser::readReal(double* value, istream* is){
 	char buffer[32];
-	if(!readToken(buffer, 32)){
+	if(!readToken(buffer, 32, is)){
 		return false;
 	}
 	char* pointer;
@@ -1176,16 +1300,19 @@ bool PDFParser::readReal(double* value){
 }
 
 bool PDFParser::readToken(char* buffer, int n){
-	if(!skipSpaces()){
+	return readToken(buffer, n, &file);
+}
+bool PDFParser::readToken(char* buffer, int n, istream* is){
+	if(!skipSpaces(is)){
 		return false;
 	}
 	char a;
 	int i=0;
 	while(true){
-		file.get(a);
+		is->get(a);
 		if(isSpace(a) || isDelimiter(a)){
 			buffer[i]='\0';
-			file.seekg(-1, ios_base::cur);
+			is->seekg(-1, ios_base::cur);
 			return true;
 		}else{
 			buffer[i]=a;
@@ -1199,10 +1326,14 @@ bool PDFParser::readToken(char* buffer, int n){
 	}
 }
 
+
 bool PDFParser::skipSpaces(){
+	return skipSpaces(&file);
+}		
+bool PDFParser::skipSpaces(istream* is){
 	char a;
 	while(true){
-		file.get(a);
+		is->get(a);
 		if(isSpace(a)){
 			continue;
 		}else if(a==EOF){
@@ -1211,30 +1342,33 @@ bool PDFParser::skipSpaces(){
 			break;
 		}
 	}
-	file.seekg(-1, ios_base::cur);
+	is->seekg(-1, ios_base::cur);
 	return true;
 }
 
 bool PDFParser::readDict(Dictionary* dict){
+	return readDict(dict, &file);
+}
+bool PDFParser::readDict(Dictionary* dict, istream* is){
 	// begins with "<<"
-	if(!skipSpaces()){
+	if(!skipSpaces(is)){
 		return false;
 	}
-	if(judgeDelimiter(true)!=Delimiter::LLT){
+	if(judgeDelimiter(true, is)!=Delimiter::LLT){
 		return false;
 	}
 	
 	// key (name), value (anything)
 	while(true){
-		int delim=judgeDelimiter(false);
+		int delim=judgeDelimiter(false, is);
 		if(delim==Delimiter::SOL){
 			// /name
-		  unsigned char* name=readName();
+		  unsigned char* name=readName(is);
 			if(name==NULL){
 				return false;
 			}
 			// value
-			int type=judgeType();
+			int type=judgeType(is);
 			// printf("Name: %s, Type: %d\n", name, type);
 			char buffer[128];
 			uchar* stringValue;
@@ -1250,7 +1384,7 @@ bool PDFParser::readDict(Dictionary* dict){
 			switch(type){
 			case Type::Bool:
 				boolValue=new bool();
-				if(!readBool(boolValue)){
+				if(!readBool(boolValue, is)){
 					cout << "Error in read bool" << endl;
 					return false;
 				}
@@ -1258,7 +1392,7 @@ bool PDFParser::readDict(Dictionary* dict){
 				break;
 			case Type::Int:
 				intValue=new int();
-				if(!readInt(intValue)){
+				if(!readInt(intValue, is)){
 					cout << "Error in read integer" << endl;
 					return false;
 				}
@@ -1266,17 +1400,17 @@ bool PDFParser::readDict(Dictionary* dict){
 				break;
 			case Type::Real:
 				realValue=new double();
-				if(!readReal(realValue)){
+				if(!readReal(realValue, is)){
 					cout << "Error in read real number" << endl;
 					return false;
 				}
 				dict->Append(name, realValue, type);
 				break;
 			case Type::Null:
-				readToken(buffer, 128);
+				readToken(buffer, 128, is);
 				break;
 			case Type::String:
-			  stringValue=readString();
+			  stringValue=readString(is);
 				if(stringValue==NULL){
 					cout << "Error in read string" << endl;
 					return false;
@@ -1284,7 +1418,7 @@ bool PDFParser::readDict(Dictionary* dict){
 				dict->Append(name, stringValue, type);
 				break;
 			case Type::Name:
-			  nameValue=readName();
+			  nameValue=readName(is);
 				if(nameValue==NULL){
 					cout << "Error in read name" << endl;
 					return false;
@@ -1293,7 +1427,7 @@ bool PDFParser::readDict(Dictionary* dict){
 				break;
 			case Type::Indirect:
 				indirectValue=new Indirect();
-				if(!readRefID(&(indirectValue->objNumber), &(indirectValue->genNumber))){
+				if(!readRefID(&(indirectValue->objNumber), &(indirectValue->genNumber), is)){
 					cout << "Error in read indirect object" << endl;
 					return false;
 				}
@@ -1301,7 +1435,7 @@ bool PDFParser::readDict(Dictionary* dict){
 				break;
 			case Type::Dict:
 				dictValue=new Dictionary();
-				if(!readDict(dictValue)){
+				if(!readDict(dictValue, is)){
 					cout << "Error in read dictionary" << endl;
 					return false;
 				}
@@ -1309,7 +1443,7 @@ bool PDFParser::readDict(Dictionary* dict){
 				break;
 			case Type::Array:
 				arrayValue=new Array();
-				if(!readArray(arrayValue)){
+				if(!readArray(arrayValue, is)){
 					cout << "Error in read array" << endl;
 					return false;
 				}
@@ -1319,27 +1453,33 @@ bool PDFParser::readDict(Dictionary* dict){
 			//break;
 		}else if(delim==Delimiter::GGT){
 			// >> (end of dictionary)
-			judgeDelimiter(true);
+			judgeDelimiter(true, is);
 			break;
+		}else{
+			cout << "SOMETHING STRANGE" << endl;
+			return NULL;
 		}
 	}
 	return true;
 }
 
 bool PDFParser::readArray(Array* array){
+	return readArray(array, &file);
+}
+bool PDFParser::readArray(Array* array, istream* is){
 	// begins with "["
-	if(!skipSpaces()){
+	if(!skipSpaces(is)){
 		return false;
 	}
-	if(judgeDelimiter(true)!=Delimiter::LSB){
+	if(judgeDelimiter(true, is)!=Delimiter::LSB){
 		return false;
 	}
 	
 	// value (anything)
 	while(true){
-		int delim=judgeDelimiter(false);
+		int delim=judgeDelimiter(false, is);
 		if(delim!=Delimiter::RSB){
-			int type=judgeType();
+			int type=judgeType(is);
 			// printf("Type: %d\n", type);
 			char buffer[128];
 			uchar* stringValue;
@@ -1355,7 +1495,7 @@ bool PDFParser::readArray(Array* array){
 			switch(type){
 			case Type::Bool:
 				boolValue=new bool();
-				if(!readBool(boolValue)){
+				if(!readBool(boolValue, is)){
 					cout << "Error in read bool" << endl;
 					return false;
 				}
@@ -1363,7 +1503,7 @@ bool PDFParser::readArray(Array* array){
 				break;
 			case Type::Int:
 				intValue=new int();
-				if(!readInt(intValue)){
+				if(!readInt(intValue, is)){
 					cout << "Error in read integer" << endl;
 					return false;
 				}
@@ -1371,18 +1511,18 @@ bool PDFParser::readArray(Array* array){
 				break;
 			case Type::Real:
 				realValue=new double();
-				if(!readReal(realValue)){
+				if(!readReal(realValue, is)){
 					cout << "Error in read real number" << endl;
 					return false;
 				}
 				array->Append(realValue, type);
 				break;
 			case Type::Null:
-				readToken(buffer, 128);
+				readToken(buffer, 128, is);
 				array->Append(NULL, type);
 				break;
 			case Type::String:
-			  stringValue=readString();
+			  stringValue=readString(is);
 				if(stringValue==NULL){
 					cout << "Error in read string" << endl;
 					return false;
@@ -1390,7 +1530,7 @@ bool PDFParser::readArray(Array* array){
 				array->Append(stringValue, type);
 				break;
 			case Type::Name:
-			  nameValue=readName();
+			  nameValue=readName(is);
 				if(nameValue==NULL){
 					cout << "Error in read name" << endl;
 					return false;
@@ -1399,7 +1539,7 @@ bool PDFParser::readArray(Array* array){
 				break;
 			case Type::Indirect:
 				indirectValue=new Indirect();
-				if(!readRefID(&(indirectValue->objNumber), &(indirectValue->genNumber))){
+				if(!readRefID(&(indirectValue->objNumber), &(indirectValue->genNumber), is)){
 					cout << "Error in read indirect object" << endl;
 					return false;
 				}
@@ -1407,7 +1547,7 @@ bool PDFParser::readArray(Array* array){
 				break;
 			case Type::Dict:
 				dictValue=new Dictionary();
-				if(!readDict(dictValue)){
+				if(!readDict(dictValue, is)){
 					cout << "Error in read dictionary" << endl;
 					return false;
 				}
@@ -1415,7 +1555,7 @@ bool PDFParser::readArray(Array* array){
 				break;
 			case Type::Array:
 				arrayValue=new Array();
-				if(!readArray(arrayValue)){
+				if(!readArray(arrayValue, is)){
 					cout << "Error in read array" << endl;
 					return false;
 				}
@@ -1425,41 +1565,44 @@ bool PDFParser::readArray(Array* array){
 			
 		}else{
 			// ] (end of array)
-			judgeDelimiter(true);
+			judgeDelimiter(true, is);
 			break;
 		}
 	}
 	return true;
 }
 
-
 int PDFParser::judgeDelimiter(bool skip){
-	int pos=(int) file.tellg();
+	return judgeDelimiter(skip, &file);
+}
+int PDFParser::judgeDelimiter(bool skip, istream* is){
+	int pos=(int) is->tellg();
 
 	int delimID=-1;
-	if(!skipSpaces()){
+	if(!skipSpaces(is)){
+		cout << "SS" << endl;
 		return -1;
 	}
 	char a1, a2;
-	file.get(a1);
+	is->get(a1);
 	if(a1=='('){
 		delimID=Delimiter::LP;
 	}else if(a1==')'){
 		delimID=Delimiter::RP;
 	}else if(a1=='<'){
-		file.get(a2);
+		is->get(a2);
 		if(a2=='<'){
 			delimID=Delimiter::LLT;
 		}else{
-			file.seekg(-1, ios_base::cur);
+			is->seekg(-1, ios_base::cur);
 			delimID=Delimiter::LT;
 		}
 	}else if(a1=='>'){
-		file.get(a2);
+		is->get(a2);
 		if(a2=='>'){
 			delimID=Delimiter::GGT;
 		}else{
-			file.seekg(-1, ios_base::cur);
+			is->seekg(-1, ios_base::cur);
 			delimID=Delimiter::GT;
 		}
 	}else if(a1=='['){
@@ -1477,25 +1620,28 @@ int PDFParser::judgeDelimiter(bool skip){
 	}	
 	
 	if(!skip){
-		file.seekg(pos, ios_base::beg);
+		is->seekg(pos, ios_base::beg);
 	}
 	return delimID;
 }
 
 unsigned char* PDFParser::readName(){
-	if(!skipSpaces()){
+	return readName(&file);
+}
+unsigned char* PDFParser::readName(istream* is){
+	if(!skipSpaces(is)){
 		return NULL;
 	}
 	char a;
-	file.get(a);
+	is->get(a);
 	if(a!='/'){
 		return NULL;
 	}
 	string value1=string("");
 	while(true){
-		file.get(a);
+		is->get(a);
 		if(isSpace(a) || isDelimiter(a)){
-			file.seekg(-1, ios_base::cur);
+			is->seekg(-1, ios_base::cur);
 			break;
 		}else{
 			value1+=a;
@@ -1519,13 +1665,15 @@ unsigned char* PDFParser::readName(){
 	return ret;
 }
 
-
 uchar* PDFParser::readString(){
-	if(!skipSpaces()){
+	return readString(&file);
+}
+uchar* PDFParser::readString(istream* is){
+	if(!skipSpaces(is)){
 		return NULL;
 	}
 	char a;
-	file.get(a);
+	is->get(a);
 	if(a!='<' && a!='('){
 		return NULL;
 	}
@@ -1535,7 +1683,7 @@ uchar* PDFParser::readString(){
 	string value1=string("");
 	int depth=1;
 	while(true){
-		file.get(a);
+		is->get(a);
 		if(a==endDelim){
 			depth--;
 			if(depth==0){
@@ -1544,6 +1692,9 @@ uchar* PDFParser::readString(){
 		}else{
 			if(a==startDelim){
 				depth++;
+			}else if(a=='\\'){
+				value1+=a;
+				is->get(a);
 			}
 			value1+=a;
 		}
@@ -1724,10 +1875,14 @@ bool PDFParser::readStream(Stream* stm, bool outputError){
 }
 
 int PDFParser::judgeType(){
-	if(!skipSpaces()){
+	return judgeType(&file);
+}
+int PDFParser::judgeType(istream* is){
+	if(!skipSpaces(is)){
 		return -1;
 	}
-	int delimID=judgeDelimiter(false);
+	int delimID=judgeDelimiter(false, is);
+	// cout << delimID << endl;
 	// begins with delimiter: string, name, dict, array
 	if(delimID==Delimiter::LP || delimID==Delimiter::LT){
 		return Type::String;
@@ -1739,10 +1894,10 @@ int PDFParser::judgeType(){
 		return Type::Array;
 	}
 	// token
-	int position=(int) file.tellg();
+	int position=(int) is->tellg();
 	int typeID=-1;
 	char buffer[128];
-	if(!readToken(buffer, 128)){
+	if(!readToken(buffer, 128, is)){
 	}
 	if(strcmp(buffer, "true")==0 || strcmp(buffer, "false")==0){
 		typeID=Type::Bool;
@@ -1754,22 +1909,22 @@ int PDFParser::judgeType(){
 	//
 	int v1, v2;
 	double v3;
-	file.seekg(position, ios_base::beg);
-	if(readRefID(&v1, &v2)){
+	is->seekg(position, ios_base::beg);
+	if(readRefID(&v1, &v2, is)){
 		typeID=Type::Indirect;
 	}else{
-		file.seekg(position, ios_base::beg);
-		if(readInt(&v1)){
+		is->seekg(position, ios_base::beg);
+		if(readInt(&v1, is)){
 			typeID=Type::Int;
 		}else{
-			file.seekg(position, ios_base::beg);
-			if(readReal(&v3)){
+			is->seekg(position, ios_base::beg);
+			if(readReal(&v3, is)){
 				typeID=Type::Real;
 			}
 		}
 	}
 		
 
-	file.seekg(position, ios_base::beg);
+	is->seekg(position, ios_base::beg);
 	return typeID;
 }

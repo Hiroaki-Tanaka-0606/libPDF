@@ -33,7 +33,8 @@ Encryption::Encryption(Dictionary* encrypt, Array* ID):
 	error(false),
 	Idn((unsigned char*)"Identity"),
 	CFexist(false),
-	encryptMeta(true)
+	encryptMeta(true),
+	FEKObtained(false)
 {
 	OSSL_PROVIDER *prov_leg=OSSL_PROVIDER_load(NULL, "legacy");
 	OSSL_PROVIDER *prov_def=OSSL_PROVIDER_load(NULL, "default");
@@ -313,6 +314,169 @@ Encryption::Encryption(Dictionary* encrypt, Array* ID):
 	AuthUser();
 }
 
+bool Encryption::DecryptStream(Stream* stm){
+	// copy the original data to encrypted
+	int padLength=16-stm->length%16;
+	stm->encrypted=new unsigned char[stm->length+padLength+1];
+	int i;
+	for(i=0; i<stm->length; i++){
+		stm->encrypted[i]=stm->data[i];
+	}
+	for(i=0; i<padLength; i++){
+		stm->encrypted[stm->length+i]=(unsigned char)padLength;
+	}
+	stm->encrypted[stm->length+padLength]='\0';
+	stm->elength=stm->length+padLength;
+
+	/*
+	printf("Encrypted (%d bytes): ", stm->elength);
+	for(i=0; i<stm->elength; i++){
+		printf("%02x ", stm->encrypted[i]);
+	}
+	cout << endl;*/
+
+	if(unsignedstrcmp(StmF, Idn)){
+		// Identity filter: do nothing
+		return true;
+	}
+	// use StmF
+	Dictionary* filter;
+	int filterType;
+	void* filterValue;
+	if(CF->Read(StmF, (void**)&filterValue, &filterType) && filterType==Type::Dict){
+		filter=(Dictionary*)filterValue;
+	}else{
+		cout << "Error in read StmF value" << endl;
+		return false;
+	}
+	// filter->Print();
+
+	unsigned char* CFM;
+	int CFMType;
+	void* CFMValue;
+	if(filter->Read((unsigned char*)"CFM", (void**)&CFMValue, &CFMType) && CFMType==Type::Name){
+		CFM=(unsigned char*)CFMValue;
+		// printf("CFM: %s\n", CFM);
+	}else{
+		cout << "Error in read CFM" << endl;
+		return false;
+	}
+
+	if(!FEKObtained){
+		cout << "Error: not authenticated" << endl;
+		return false;
+	}
+	if(unsignedstrcmp(CFM, (unsigned char*)"V2")){
+	}else if(unsignedstrcmp(CFM, (unsigned char*)"AESV2")){
+		unsigned char hashed_md5[16];
+		int result;
+		EVP_MD_CTX* md5ctx=EVP_MD_CTX_new();
+		result=EVP_DigestInit_ex(md5ctx, EVP_md5(), NULL);
+		if(result!=1){
+			cout << "EVP_DigestInit failed" << endl;
+			return false;
+		}
+		/*
+		for(i=0; i<Length_bytes; i++){
+			printf("%02x ", FEK->data[i]);
+		}
+		cout << endl;*/
+		// FEK
+		result=EVP_DigestUpdate(md5ctx, &(FEK->data[0]), Length_bytes);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in FEK" << endl;
+			return false;
+		}
+		// object number (low-order byte first)
+		int objNumber2=stm->objNumber;
+		unsigned char objNumber_c[3];
+		for(i=0; i<3; i++){
+			objNumber_c[i]=objNumber2%256;
+			objNumber2=(objNumber2-objNumber2%256)/256;
+		}
+		result=EVP_DigestUpdate(md5ctx, &objNumber_c[0], 3);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in objNumber" << endl;
+			return false;
+		}
+		// gen number
+		int genNumber2=stm->genNumber;
+		unsigned char genNumber_c[2];
+		for(i=0; i<2; i++){
+			genNumber_c[i]=genNumber2%256;
+			genNumber2=(genNumber2-genNumber2%256)/256;
+		}
+		result=EVP_DigestUpdate(md5ctx, &genNumber_c[0], 2);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in genNumber" << endl;
+			return false;
+		}
+		// 'sAIT'
+		unsigned char sAIT[4]={0x73, 0x41, 0x6c, 0x54};
+		result=EVP_DigestUpdate(md5ctx, &sAIT[0], 4);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in sAIR" << endl;
+			return false;
+		}
+		// close the hash
+		unsigned int count;
+		result=EVP_DigestFinal_ex(md5ctx, &hashed_md5[0], &count);
+		/*
+		printf("Encryption key (%d bytes): ", count);
+		for(i=0; i<count; i++){
+			printf("%02x ", hashed_md5[i]);
+		}
+		cout << endl;*/
+
+		// key and init vector
+		unsigned char key[16];
+		for(i=0; i<16; i++){
+			key[i]=hashed_md5[i];
+		}
+		unsigned char iv[16];
+		for(i=0; i<16; i++){
+			iv[i]=stm->data[i];
+		}
+
+		// AES, CBC mode decrypt
+		int aescount;
+		EVP_CIPHER_CTX *aesctx=EVP_CIPHER_CTX_new();
+		result=EVP_DecryptInit_ex2(aesctx, EVP_aes_128_cbc(), key, iv, NULL);
+		if(result!=1){
+			cout << "EVP_DecryptInit failed " << endl;
+			return false;
+		}
+	  // printf("%p %p %d\n", &(stm->encrypted[0]), &(stm->encrypted[16]), stm->elength-16);
+		result=EVP_DecryptUpdate(aesctx, &(stm->data[0]), &aescount, &(stm->encrypted[16]), (stm->length-16));
+		if(result!=1){
+			cout << "EVP_DecryptUpdate failed" << endl;
+			return false;
+		}
+		// cout << aescount << endl;
+		int aesfinalCount;
+		result=EVP_DecryptFinal_ex(aesctx, &(stm->data[aescount]), &aesfinalCount);
+		if(result!=1){
+			cout << "EVP_DecryptFinal failed" << endl;
+			ERR_print_errors_fp(stderr);
+			//return false;
+		}
+		aescount+=aesfinalCount;
+		/*
+		printf("AES decrypted %d bytes: ", aescount);
+		for(i=0; i<aescount; i++){
+			printf("%02x ", stm->data[i]);
+		}
+		cout << endl;*/
+		stm->length=aescount;
+			
+
+	}else if(unsignedstrcmp(CFM, (unsigned char*)"AESV3")){
+		
+	}
+	
+	return true;
+}
+
 bool Encryption::AuthUser(){
 	uchar* pwd=new uchar();
 	pwd->length=32;
@@ -352,6 +516,11 @@ bool Encryption::AuthUser(uchar* pwd){
 			return false;
 		}
 	}
+	cout << "U and trial U match" << endl;
+
+	// save fileEncryptionKey
+	FEK=fek;
+	FEKObtained=true;
 	return true;
 }
 
