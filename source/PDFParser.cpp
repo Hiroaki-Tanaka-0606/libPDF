@@ -409,7 +409,7 @@ bool PDFParser::readRefObj(Indirect* ref, void** object, int* objType){
 			cout << "Error in read N" << endl;
 			return false;
 		}
-		string data((char*)objStream->decoded, objStream->length);
+		string data((char*)objStream->decoded, objStream->dlength);
 		istringstream is(data);
 		int positionInObjStream;
 		for(i=0; i<N; i++){
@@ -428,8 +428,11 @@ bool PDFParser::readRefObj(Indirect* ref, void** object, int* objType){
 				}
 			}
 		}
+		// cout << objStream->decoded << endl;
 		is.seekg(positionInObjStream, ios_base::beg);
+		// cout << "Judge" << endl;
 		*objType=judgeType(&is);
+		printf("ObjType: %d\n", *objType);
 		switch(*objType){
 		case Type::Bool:
 			*object=new bool();
@@ -1332,8 +1335,11 @@ bool PDFParser::skipSpaces(){
 }		
 bool PDFParser::skipSpaces(istream* is){
 	char a;
+	int pos=(int) is->tellg();
+	// cout << pos << endl;
 	while(true){
 		is->get(a);
+		// cout << a << endl;
 		if(isSpace(a)){
 			continue;
 		}else if(a==EOF){
@@ -1576,8 +1582,9 @@ int PDFParser::judgeDelimiter(bool skip){
 	return judgeDelimiter(skip, &file);
 }
 int PDFParser::judgeDelimiter(bool skip, istream* is){
+	// cout << "Delim" << endl;
 	int pos=(int) is->tellg();
-
+	// cout << pos << endl;
 	int delimID=-1;
 	if(!skipSpaces(is)){
 		cout << "SS" << endl;
@@ -1585,6 +1592,7 @@ int PDFParser::judgeDelimiter(bool skip, istream* is){
 	}
 	char a1, a2;
 	is->get(a1);
+	// cout << a1 << endl;
 	if(a1=='('){
 		delimID=Delimiter::LP;
 	}else if(a1==')'){
@@ -1878,9 +1886,11 @@ int PDFParser::judgeType(){
 	return judgeType(&file);
 }
 int PDFParser::judgeType(istream* is){
+	// cout << "Type" << endl;
 	if(!skipSpaces(is)){
 		return -1;
 	}
+	// cout << "Skip" << endl;
 	int delimID=judgeDelimiter(false, is);
 	// cout << delimID << endl;
 	// begins with delimiter: string, name, dict, array

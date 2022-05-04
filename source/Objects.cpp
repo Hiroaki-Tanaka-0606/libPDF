@@ -345,7 +345,7 @@ bool unsignedstrcmp(unsigned char* a, unsigned char* b){
 }
 
 int decodeData(unsigned char* encoded, unsigned char* filter, Dictionary* parm, int encodedLength, unsigned char** decoded){
-	// printf("Filter: %s\n", filter);
+	printf("Filter: %s\n", filter);
 
 	unsigned char inBuf[ZBUFSIZE];
 	unsigned char outBuf[ZBUFSIZE];
@@ -433,6 +433,7 @@ int decodeData(unsigned char* encoded, unsigned char* filter, Dictionary* parm, 
 		for(i=0; i<(ZBUFSIZE-z.avail_out); i++){
 			output+=outBuf[i];
 		}
+		// cout << output.length() << " LENGTH" << endl;
 		*decoded=new unsigned char[output.length()];
 		for(i=0; i<output.length(); i++){
 			(*decoded)[i]=(unsigned char)output[i];

@@ -74,6 +74,7 @@ int main(int argc, char** argv){
 	cout << "Page information" << endl;
 	int i;
 	for(i=0; i<PP.PagesSize; i++){
+		printf("----    Page %d    ----\n", (i+1));
 		Page* p=PP.Pages[i];
 		void* UserUnitValue;
 		int UserUnitType;
@@ -108,7 +109,33 @@ int main(int argc, char** argv){
 				if(PP.readRefObj(AnnotsRef, (void**)&AnnotsValue, &AnnotsType) && AnnotsType==Type::Array){
 					Annots=(Array*)AnnotsValue;
 					cout << "Annots(Indirect):" << endl;
-					Annots->Print();
+				  int annotsSize=Annots->getSize();
+					int j;
+					for(j=0; j<annotsSize; j++){
+						printf("  --    Annot %d    --\n", (j+1));
+						void* AnnotValue;
+						int AnnotType;
+						Dictionary* Annot;
+						if(Annots->Read(j, (void**)&AnnotValue, &AnnotType)){
+							if(AnnotType==Type::Indirect){
+								Indirect* AnnotRef=(Indirect*)AnnotValue;
+								if(PP.readRefObj(AnnotRef, (void**)&AnnotValue, &AnnotType) && AnnotType==Type::Dict){
+									Annot=(Dictionary*)AnnotValue;
+								}else{
+									cout << "Error in read Annot reference" << endl;
+									return -1;
+								}
+							}else if(AnnotType==Type::Dict){
+								Annot=(Dictionary*)AnnotValue;
+							}else{
+								cout << "Annot is not a dictionary" << endl;
+								return -1;
+							}
+							cout << "  ----" << endl;
+							Annot->Print();
+							cout << endl;
+						}
+					}
 				}
 			}
 		}else{
