@@ -141,7 +141,7 @@ int main(int argc, char** argv){
 		}else{
 			cout << "No Annots" << endl;
 		}
-		/*
+		
 		void* contentsValue;
 		int contentsType;
 		Indirect* contentsRef;
@@ -166,7 +166,7 @@ int main(int argc, char** argv){
 								}
 							}
 							content->Decode();
-							// printf("----\n%s\n----\n", content->decoded);
+							printf("----\n%s\n----\n", content->decoded);
 						}
 					}
 				}
@@ -182,7 +182,7 @@ int main(int argc, char** argv){
 							}
 						}
 						content->Decode();
-						// printf("----\n%s\n----\n", content->decoded);
+						printf("----\n%s\n----\n", content->decoded);
 					}else if(contentsType==Type::Array){
 						Array* contentsArray=(Array*)contentsValue;
 						int contentsSize=contentsArray->getSize();
@@ -202,7 +202,7 @@ int main(int argc, char** argv){
 											return -1;
 										}
 									}
-									// content->Decode();
+									content->Decode();
 									printf("----\n%s\n----\n", content->decoded);
 								}
 							}
@@ -211,7 +211,7 @@ int main(int argc, char** argv){
 				}
 			}
 			
-			}*/
+			}
 		cout << endl;
 	}
 	

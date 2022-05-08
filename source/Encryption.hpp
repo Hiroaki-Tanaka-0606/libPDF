@@ -42,4 +42,5 @@ public:
 	bool AuthUser();
 	bool AuthOwner(uchar* pwd);
 	bool DecryptStream(Stream* stm);
+	uchar* GetPassword();
 };

@@ -253,7 +253,6 @@ PDFParser::PDFParser(char* fileName):
 }
 
 bool PDFParser::investigatePages(Indirect* pagesRef, int* pageCount){
-	cout << "INVEST" << endl;
 	void* pagesValue;
 	int pagesType;
 	Dictionary* pages;

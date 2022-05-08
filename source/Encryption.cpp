@@ -1,6 +1,11 @@
 // class Encryption
 
 #include <iostream>
+#include <termios.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <cstring>
+
 #include "Encryption.hpp"
 
 /*
@@ -310,11 +315,19 @@ Encryption::Encryption(Dictionary* encrypt, Array* ID):
 		cout << endl;
 	}
 
-	
-	AuthUser();
+	// Authentication test
+	if(!AuthUser()){
+		cout << "Enter password" << endl;
+		uchar* pwd_input=GetPassword();
+		AuthUser(pwd_input);
+	}
 }
 
 bool Encryption::DecryptStream(Stream* stm){
+	if(!FEKObtained){
+		cout << "Not yet authenticated" << endl;
+		return false;
+	}
 	// copy the original data to encrypted
 	int padLength=16-stm->length%16;
 	stm->encrypted=new unsigned char[stm->length+padLength+1];
@@ -653,7 +666,7 @@ uchar* Encryption::fileEncryptionKey(uchar* pwd){
 	int i, j;
 	if(R<=4){
 		// MD5 (16 bytes) version
-		int fromPwd=max(32, pwd->length);
+		int fromPwd=min(32, pwd->length);
 		int fromPad=32-fromPwd;
 		unsigned char paddedPwd[32];
 		for(i=0; i<fromPwd; i++){
@@ -662,6 +675,11 @@ uchar* Encryption::fileEncryptionKey(uchar* pwd){
 		for(i=0; i<fromPad; i++){
 			paddedPwd[i+fromPwd]=PADDING[i];
 		}
+		cout << "Padded password: ";
+		for(i=0; i<32; i++){
+			printf("%02x ", paddedPwd[i]);
+		}
+		cout << endl;
 
 		unsigned char hashed_md5[16];
 		int result;
@@ -783,4 +801,29 @@ uchar* Encryption::fileEncryptionKey(uchar* pwd){
 	}
 
 	return NULL;
+}
+
+uchar* Encryption::GetPassword(){
+	char pwd[64];
+	struct termios term;
+	struct termios save;
+	tcgetattr(STDIN_FILENO, &term);
+	save=term;
+	// turn off echo
+	term.c_lflag &= ~ECHO;
+	tcsetattr(STDIN_FILENO, TCSANOW, &term);
+	// password
+	cin >> pwd;
+	// turn off echo
+	tcsetattr(STDIN_FILENO, TCSANOW, &save);
+
+	uchar* pwdObj=new uchar();
+	pwdObj->data=new unsigned char[strlen(pwd)+1];
+	int i;
+	for(i=0; i<strlen(pwd); i++){
+		pwdObj->data[i]=pwd[i];
+	}
+	pwdObj->data[strlen(pwd)]='\0';
+	pwdObj->length=strlen(pwd);
+	return pwdObj;
 }
