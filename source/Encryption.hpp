@@ -35,12 +35,15 @@ private:
 	uchar* fileEncryptionKey(uchar* pwd);
 	uchar* IDs[2];
 	uchar* trialU(uchar* fek);
+	uchar* RC4EncryptionKey(uchar* pwd);
+	uchar* DecryptO(uchar* RC4fek);
 	
 public:
 	Encryption(Dictionary* encrypt, Array* ID);
 	bool AuthUser(uchar* pwd);
 	bool AuthUser();
 	bool AuthOwner(uchar* pwd);
+	bool AuthOwner();
 	bool DecryptStream(Stream* stm);
 	uchar* GetPassword();
 };

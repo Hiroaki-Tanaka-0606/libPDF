@@ -29,6 +29,9 @@ int EVP_EncryptInit_ex2(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *type,
 int EVP_EncryptUpdate(EVP_CIPHER_CTX *ctx, unsigned char *out,
                        int *outl, const unsigned char *in, int inl);
 int EVP_EncryptFinal_ex(EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl);
+
+int EVP_DecryptUpdate(EVP_CIPHER_CTX *ctx, unsigned char *out,
+                       int *outl, const unsigned char *in, int inl);
  */
 
 using namespace std;
@@ -315,11 +318,26 @@ Encryption::Encryption(Dictionary* encrypt, Array* ID):
 		cout << endl;
 	}
 
-	// Authentication test
+	// Authentication test (user)
+	cout << "Trial user authentication with no password" << endl;
 	if(!AuthUser()){
-		cout << "Enter password" << endl;
+		cout << "User authentication with no password failed" << endl;
+		cout << "Enter user password" << endl;
 		uchar* pwd_input=GetPassword();
 		AuthUser(pwd_input);
+	}
+
+	// Authentication test (owner)
+	cout << "Trial owner authentication with no password" << endl;
+	if(!AuthOwner()){
+		cout << "Owner authentication with no password failed" << endl;
+		cout << "Enter owner password; enter something arbitrary to skip" << endl;
+		uchar* pwd_input_o=GetPassword();
+		if(pwd_input_o->length>0){
+			AuthOwner(pwd_input_o);
+		}else{
+			cout << "Owner authentication skipped" << endl;
+		}
 	}
 }
 
@@ -488,6 +506,42 @@ bool Encryption::DecryptStream(Stream* stm){
 	}
 	
 	return true;
+}
+
+bool Encryption::AuthOwner(){
+	uchar* pwd=new uchar();
+	pwd->length=32;
+	int i;
+	pwd->data=new unsigned char[33];
+	for(i=0; i<32; i++){
+		pwd->data[i]=PADDING[i];
+	}
+	pwd->data[32]='\0';
+	return AuthOwner(pwd);
+}
+
+bool Encryption::AuthOwner(uchar* pwd){
+	int i;
+	cout << "Trial password: ";
+	for(i=0; i<pwd->length; i++){
+		printf("%02x ", pwd->data[i]);
+	}
+	cout << endl;
+
+	uchar* RC4fek=RC4EncryptionKey(pwd);
+	cout << "RC4 file encryption key: ";
+	for(i=0; i<Length_bytes; i++){
+		printf("%02x ", RC4fek->data[i]);
+	}
+	cout << endl;
+
+	uchar* trialUserPassword=DecryptO(RC4fek);
+	cout << "Trial user password (padded): ";
+	for(i=0; i<trialUserPassword->length; i++){
+		printf("%02x ", trialUserPassword->data[i]);
+	}
+	cout << endl;
+	return AuthUser(trialUserPassword);
 }
 
 bool Encryption::AuthUser(){
@@ -802,6 +856,190 @@ uchar* Encryption::fileEncryptionKey(uchar* pwd){
 
 	return NULL;
 }
+
+uchar* Encryption::RC4EncryptionKey(uchar* pwd){
+	if(error){
+		return NULL;
+	}
+	int i, j;
+	if(R<=4){
+		// MD5 (16 bytes) version
+		int fromPwd=min(32, pwd->length);
+		int fromPad=32-fromPwd;
+		unsigned char paddedPwd[32];
+		for(i=0; i<fromPwd; i++){
+			paddedPwd[i]=pwd->data[i];
+		}
+		for(i=0; i<fromPad; i++){
+			paddedPwd[i+fromPwd]=PADDING[i];
+		}
+		cout << "Padded password: ";
+		for(i=0; i<32; i++){
+			printf("%02x ", paddedPwd[i]);
+		}
+		cout << endl;
+
+		unsigned char hashed_md5[16];
+		int result;
+
+		EVP_MD_CTX* ctx=EVP_MD_CTX_new();
+		result=EVP_DigestInit_ex(ctx, EVP_md5(), NULL);
+		if(result!=1){
+			cout << "EVP_DigestInit failed" << endl;
+			return NULL;
+		}
+		// Padded password
+		result=EVP_DigestUpdate(ctx, &paddedPwd[0], 32);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in padded password" << endl;
+			return NULL;
+		}
+
+		// close the hash
+		unsigned int count;
+		result=EVP_DigestFinal_ex(ctx, &hashed_md5[0], &count);
+		if(result!=1){
+			cout << "EVP_DigestFinal failed" << endl;
+			return NULL;
+		}
+
+		if(R>=3){
+			unsigned char hash_input[16];
+			result=EVP_MD_CTX_reset(ctx);
+			if(result!=1){
+				cout << "EVP_MD_CTX_reset failed" << endl;
+				return NULL;
+			}
+			result=EVP_DigestInit_ex(ctx, EVP_md5(), NULL);
+			if(result!=1){
+				cout << "EVP_DigestInit failed" << endl;
+				return NULL;
+			}
+			for(i=0; i<50; i++){
+				for(j=0; j<16; j++){
+					hash_input[j]=hashed_md5[j];
+				}
+				result=EVP_MD_CTX_reset(ctx);
+				if(result!=1){
+					cout << "EVP_MD_CTX_reset failed" << endl;
+					return NULL;
+				}
+				result=EVP_DigestInit_ex(ctx, EVP_md5(), NULL);
+				if(result!=1){
+					cout << "EVP_DigestInit failed" << endl;
+					return NULL;
+				}
+				result=EVP_DigestUpdate(ctx, &hash_input[0], 16);
+				if(result!=1){
+					cout << "EVP_DigestUpdate failed in loop" << endl;
+					return NULL;
+				}
+				result=EVP_DigestFinal_ex(ctx, &hashed_md5[0], &count);
+				if(result!=1){
+					cout << "EVP_DigestFinal failed in loop" << endl;
+					return NULL;
+				}
+				/*
+				printf("#%d: %d bytes, ", i, count);
+				for(j=0; j<count; j++){
+					printf("%02x ", hashed_md5[j]);
+				}
+				cout << endl;*/
+			}
+		}
+		uchar* fek=new uchar();
+		fek->data=new unsigned char[Length_bytes+1];
+		for(i=0; i<Length_bytes; i++){
+			fek->data[i]=hashed_md5[i];
+		}
+		fek->data[Length_bytes+1]='\0';
+		fek->length=Length_bytes;
+		return fek;
+	}else if(R==6){
+		
+	}else{
+		return NULL;
+	}
+
+	return NULL;
+}
+
+
+uchar* Encryption::DecryptO(uchar* RC4fek){
+	int i,j;
+	if(R==2){
+		
+	}else if(R==3 || R==4){
+		unsigned char encrypted_rc4[32];
+		unsigned char unencrypted[32];
+		for(i=0; i<32; i++){
+			unencrypted[i]=O->data[i];
+		}
+		int result;
+		int rc4count;
+		int rc4finalCount;
+		EVP_CIPHER_CTX *rc4ctx=EVP_CIPHER_CTX_new();
+		EVP_CIPHER* rc4=EVP_CIPHER_fetch(NULL, "RC4", "provider=legacy");
+		result=EVP_DecryptInit_ex2(rc4ctx, rc4, RC4fek->data, NULL, NULL);
+		for(i=19; i>=0; i--){
+			unsigned char fek_i[Length_bytes];
+			for(j=0; j<32; j++){
+				encrypted_rc4[j]=unencrypted[j];
+			}
+			for(j=0; j<Length_bytes; j++){
+				fek_i[j]=(RC4fek->data[j])^((unsigned char)i);
+			}
+			/*
+			printf("RC4 encryption key: ");
+			for(j=0; j<Length_bytes; j++){
+				printf("%02x ", fek_i[j]);
+			}
+			cout << endl;*/
+			result=EVP_CIPHER_CTX_reset(rc4ctx);
+			if(result!=1){
+				cout << "EVP_CIPHER_CTX_reset failed" << endl;
+				return NULL;
+			}
+			result=EVP_DecryptInit_ex2(rc4ctx, rc4, &fek_i[0], NULL, NULL);
+			if(result!=1){
+				cout << "EVP_DecryptInit failed" << endl;
+				return NULL;
+			}
+			result=EVP_CIPHER_CTX_set_key_length(rc4ctx, Length);
+			if(result!=1){
+				cout << "EVP_CIPHER_CTX_set_key_length failed" << endl;
+				return NULL;
+			}
+			result=EVP_DecryptUpdate(rc4ctx, &unencrypted[0], &rc4count, &encrypted_rc4[0], 32);
+			if(result!=1){
+				cout << "EVP_DecryptUpdate failed" << endl;
+				return NULL;
+			}
+			result=EVP_DecryptFinal_ex(rc4ctx, &(unencrypted[rc4count]), &rc4finalCount);
+			if(result!=1){
+				cout << "EVP_DecryptFinal failed" << endl;
+				return NULL;
+			}
+			rc4count+=rc4finalCount;
+			/*
+			printf("RC4 decrypted %d bytes: ", rc4count);
+			for(j=0; j<rc4count; j++){
+				printf("%02x ", unencrypted[j]);
+			}
+			cout << endl;*/
+		}
+		uchar* tUser=new uchar();
+		tUser->data=new unsigned char[rc4count+1];
+		for(i=0; i<rc4count; i++){
+			tUser->data[i]=unencrypted[i];
+		}
+		tUser->data[rc4count]='\0';
+		tUser->length=rc4count;
+		return tUser;
+	}
+	return NULL;
+}
+
 
 uchar* Encryption::GetPassword(){
 	char pwd[64];
