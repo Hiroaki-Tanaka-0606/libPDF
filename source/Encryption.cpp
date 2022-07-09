@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <cstring>
+#include <gsasl.h>
 
 #include "Encryption.hpp"
 
@@ -46,6 +47,16 @@ Encryption::Encryption(Dictionary* encrypt, Array* ID):
 {
 	OSSL_PROVIDER *prov_leg=OSSL_PROVIDER_load(NULL, "legacy");
 	OSSL_PROVIDER *prov_def=OSSL_PROVIDER_load(NULL, "default");
+	// initialize gsasl
+	Gsasl *ctx=NULL;
+	int rc;
+	rc=gsasl_init(&ctx);
+	if(rc!=GSASL_OK){
+		printf("GSASL initialization error(%d): %s\n", rc, gsasl_strerror(rc));
+		error=true;
+		return;
+	}
+	
 	int i, j;
 	cout << "Read Encrypt information" << endl;
 	// Filter: only /Standard can be processed in this program
@@ -130,6 +141,7 @@ Encryption::Encryption(Dictionary* encrypt, Array* ID):
 				return;
 			}
 			printf("CF: %d entries\n", CF->getSize());
+			CF->Print();
 		}else{
 			cout << "No CF" << endl;
 		}
@@ -398,6 +410,94 @@ bool Encryption::DecryptStream(Stream* stm){
 		return false;
 	}
 	if(unsignedstrcmp(CFM, (unsigned char*)"V2")){
+		unsigned char hashed_md5[16];
+		int result;
+		EVP_MD_CTX* md5ctx=EVP_MD_CTX_new();
+		result=EVP_DigestInit_ex(md5ctx, EVP_md5(), NULL);
+		if(result!=1){
+			cout << "EVP_DigestInit failed" << endl;
+			return false;
+		}
+		/*
+		for(i=0; i<Length_bytes; i++){
+			printf("%02x ", FEK->data[i]);
+		}
+		cout << endl;*/
+		// FEK
+		result=EVP_DigestUpdate(md5ctx, &(FEK->data[0]), Length_bytes);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in FEK" << endl;
+			return false;
+		}
+		// object number (low-order byte first)
+		int objNumber2=stm->objNumber;
+		unsigned char objNumber_c[3];
+		for(i=0; i<3; i++){
+			objNumber_c[i]=objNumber2%256;
+			objNumber2=(objNumber2-objNumber2%256)/256;
+		}
+		result=EVP_DigestUpdate(md5ctx, &objNumber_c[0], 3);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in objNumber" << endl;
+			return false;
+		}
+		// gen number
+		int genNumber2=stm->genNumber;
+		unsigned char genNumber_c[2];
+		for(i=0; i<2; i++){
+			genNumber_c[i]=genNumber2%256;
+			genNumber2=(genNumber2-genNumber2%256)/256;
+		}
+		result=EVP_DigestUpdate(md5ctx, &genNumber_c[0], 2);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in genNumber" << endl;
+			return false;
+		}
+		// close the hash
+		unsigned int count;
+		result=EVP_DigestFinal_ex(md5ctx, &hashed_md5[0], &count);
+		/*
+		printf("Encryption key (%d bytes): ", count);
+		for(i=0; i<count; i++){
+			printf("%02x ", hashed_md5[i]);
+		}
+		cout << endl;*/
+
+		// key
+		int key_length=max(Length_bytes+5, 16);
+		unsigned char key[key_length];
+		for(i=0; i<key_length; i++){
+			key[i]=hashed_md5[i];
+		}
+
+		//decryption
+		int rc4count;
+		int rc4finalCount;
+		EVP_CIPHER_CTX *rc4ctx=EVP_CIPHER_CTX_new();
+		EVP_CIPHER* rc4=EVP_CIPHER_fetch(NULL, "RC4", "provider=legacy");
+		result=EVP_DecryptInit_ex2(rc4ctx, rc4, key, NULL, NULL);
+		if(result!=1){
+			cout << "EVP_DecryptInit failed" << endl;
+			return NULL;
+		}
+		result=EVP_CIPHER_CTX_set_key_length(rc4ctx, key_length*8);
+		if(result!=1){
+			cout << "EVP_CIPHER_CTX_set_key_length failed" << endl;
+			return NULL;
+		}
+		result=EVP_DecryptUpdate(rc4ctx, &(stm->data[0]), &rc4count, &(stm->encrypted[0]), stm->length);
+		if(result!=1){
+			cout << "EVP_DecryptUpdate failed" << endl;
+			return NULL;
+		}
+		result=EVP_DecryptFinal_ex(rc4ctx, &(stm->data[rc4count]), &rc4finalCount);
+		if(result!=1){
+			cout << "EVP_DecryptFinal failed" << endl;
+			return NULL;
+		}
+		rc4count+=rc4finalCount;
+			
+		stm->length=rc4count;
 	}else if(unsignedstrcmp(CFM, (unsigned char*)"AESV2")){
 		unsigned char hashed_md5[16];
 		int result;
@@ -446,7 +546,7 @@ bool Encryption::DecryptStream(Stream* stm){
 		unsigned char sAIT[4]={0x73, 0x41, 0x6c, 0x54};
 		result=EVP_DigestUpdate(md5ctx, &sAIT[0], 4);
 		if(result!=1){
-			cout << "EVP_DigestUpdate failed in sAIR" << endl;
+			cout << "EVP_DigestUpdate failed in sAIT" << endl;
 			return false;
 		}
 		// close the hash
@@ -509,6 +609,7 @@ bool Encryption::DecryptStream(Stream* stm){
 }
 
 bool Encryption::AuthOwner(){
+	if(R<=4){
 	uchar* pwd=new uchar();
 	pwd->length=32;
 	int i;
@@ -518,6 +619,15 @@ bool Encryption::AuthOwner(){
 	}
 	pwd->data[32]='\0';
 	return AuthOwner(pwd);
+	}else if(R==6){
+		uchar* pwd=new uchar();
+		pwd->length=0;
+		int i;
+		pwd->data=new unsigned char[1];
+		pwd->data[0]='\0';
+		return AuthOwner(pwd);
+	}
+	return false;
 }
 
 bool Encryption::AuthOwner(uchar* pwd){
@@ -528,32 +638,60 @@ bool Encryption::AuthOwner(uchar* pwd){
 	}
 	cout << endl;
 
-	uchar* RC4fek=RC4EncryptionKey(pwd);
-	cout << "RC4 file encryption key: ";
-	for(i=0; i<Length_bytes; i++){
-		printf("%02x ", RC4fek->data[i]);
-	}
-	cout << endl;
+	if(R<=4){
+		uchar* RC4fek=RC4EncryptionKey(pwd);
+		cout << "RC4 file encryption key: ";
+		for(i=0; i<Length_bytes; i++){
+			printf("%02x ", RC4fek->data[i]);
+		}
+		cout << endl;
 
-	uchar* trialUserPassword=DecryptO(RC4fek);
-	cout << "Trial user password (padded): ";
-	for(i=0; i<trialUserPassword->length; i++){
-		printf("%02x ", trialUserPassword->data[i]);
+		uchar* trialUserPassword=DecryptO(RC4fek);
+		cout << "Trial user password (padded): ";
+		for(i=0; i<trialUserPassword->length; i++){
+			printf("%02x ", trialUserPassword->data[i]);
+		}
+		cout << endl;
+		return AuthUser(trialUserPassword);
+	}else if(R==6){
+		uchar* tO=trialO6(pwd);
+		cout << "Trial O: ";
+		for(i=0; i<tO->length; i++){
+			printf("%02x ", tO->data[i]);
+		}
+		cout << endl;
+		for(i=0; i<tO->length; i++){
+			if(tO->data[i]!=O->data[i]){
+				cout << "Mismatch found in O and trial O" << endl;
+				return false;
+			}
+		}
+		cout << "O and trial O match" << endl;
+		return true;
 	}
-	cout << endl;
-	return AuthUser(trialUserPassword);
+	return false;
 }
 
 bool Encryption::AuthUser(){
-	uchar* pwd=new uchar();
-	pwd->length=32;
-	int i;
-	pwd->data=new unsigned char[33];
-	for(i=0; i<32; i++){
-		pwd->data[i]=PADDING[i];
+	if(R<=4){
+		uchar* pwd=new uchar();
+		pwd->length=32;
+		int i;
+		pwd->data=new unsigned char[33];
+		for(i=0; i<32; i++){
+			pwd->data[i]=PADDING[i];
+		}
+		pwd->data[32]='\0';
+		return AuthUser(pwd);
+	}else if(R==6){
+		uchar* pwd=new uchar();
+		pwd->length=0;
+		int i;
+		pwd->data=new unsigned char[1];
+		pwd->data[0]='\0';
+		return AuthUser(pwd);
 	}
-	pwd->data[32]='\0';
-	return AuthUser(pwd);
+	return false;
 }
 bool Encryption::AuthUser(uchar* pwd){
 	int i;
@@ -562,33 +700,49 @@ bool Encryption::AuthUser(uchar* pwd){
 		printf("%02x ", pwd->data[i]);
 	}
 	cout << endl;
-	
-	uchar* fek=fileEncryptionKey(pwd);
-	cout << "Trial file encryption key: ";
-	for(i=0; i<fek->length; i++){
-		printf("%02x ", fek->data[i]);
-	}
-	cout << endl;
-  
-	uchar* tU=trialU(fek);
-	cout << "Trial U: ";
-	for(i=0; i<tU->length; i++){
-		printf("%02x ", tU->data[i]);
-	}
-	cout << endl;
-
-	for(i=0; i<tU->length; i++){
-		if(tU->data[i]!=U->data[i]){
-			cout << "Mismatch found in U and trial U" << endl;
-			return false;
+	if(R<=4){
+		uchar* fek=fileEncryptionKey(pwd);
+		cout << "Trial file encryption key: ";
+		for(i=0; i<fek->length; i++){
+			printf("%02x ", fek->data[i]);
 		}
-	}
-	cout << "U and trial U match" << endl;
+		cout << endl;
+  
+		uchar* tU=trialU(fek);
+		cout << "Trial U: ";
+		for(i=0; i<tU->length; i++){
+			printf("%02x ", tU->data[i]);
+		}
+		cout << endl;
 
-	// save fileEncryptionKey
-	FEK=fek;
-	FEKObtained=true;
-	return true;
+		for(i=0; i<tU->length; i++){
+			if(tU->data[i]!=U->data[i]){
+				cout << "Mismatch found in U and trial U" << endl;
+				return false;
+			}
+		}
+		cout << "U and trial U match" << endl;
+		// save fileEncryptionKey
+		FEK=fek;
+		FEKObtained=true;
+		return true;
+	}else if(R==6){
+		uchar* tU=trialU6(pwd);
+		cout << "Trial U: ";
+		for(i=0; i<tU->length; i++){
+			printf("%02x ", tU->data[i]);
+		}
+		cout << endl;
+		for(i=0; i<tU->length; i++){
+			if(tU->data[i]!=U->data[i]){
+				cout << "Mismatch found in U and trial U" << endl;
+				return false;
+			}
+		}
+		cout << "U and trial U match" << endl;
+		return true;
+	}
+	return false;
 }
 
 uchar* Encryption::trialU(uchar* fek){
@@ -712,6 +866,268 @@ uchar* Encryption::trialU(uchar* fek){
 	}
 	return NULL;
 }
+
+
+uchar* Encryption::trialU6(uchar* pwd){
+	// saslprep
+	int result;
+	char* in=new char[pwd->length+1];
+	int i;
+	for(i=0; i<pwd->length; i++){
+		in[i]=pwd->data[i];
+	}
+	in[pwd->length]='\0';
+	char* out;
+	int stringpreprc;
+	result=gsasl_saslprep(&in[0], GSASL_ALLOW_UNASSIGNED, &out, &stringpreprc);
+	if(result!=GSASL_OK){
+		printf("GSASL SASLprep error(%d): %s\n", stringpreprc, gsasl_strerror(stringpreprc));
+		return NULL;
+	}
+	/*
+	cout << "SASLprep" << endl;
+	cout << out << endl;
+	i=0;
+	cout << "SASLprep" << endl;
+	while(true){
+		if(out[i]!='\0'){
+			printf("%02x ", out[i]);
+			i++;
+		}else{
+			cout << endl;
+			break;
+		}
+		}*/
+
+	// concatenate pwd with User Validation Salt
+	uchar* input=new uchar();
+	input->length=strlen(out)+8;
+	input->data=new unsigned char[input->length];
+	for(i=0; i<strlen(out); i++){
+		input->data[i]=out[i];
+	}
+	for(i=0; i<8; i++){
+		input->data[strlen(out)+i]=U->data[32+i];
+	}
+	cout << "Input + User Validation Salt: ";
+	for(i=0; i<input->length; i++){
+		printf("%02x ", input->data[i]);
+	}
+	cout << endl;
+		
+	
+	return Hash6(input, false, 8);
+}
+
+uchar* Encryption::Hash6(uchar* input, bool owner, int saltLength){
+	uchar* K=new uchar();
+	// K can be the hash of 32, 48, and 64 bytes
+	K->data=new unsigned char[64];
+	
+	int result;
+	unsigned int count;
+	// K preparation (SHA-256)
+	EVP_MD_CTX* ctx=EVP_MD_CTX_new();
+	result=EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
+	if(result!=1){
+		cout << "EVP_DigestInit failed" << endl;
+		return NULL;
+	}
+	result=EVP_DigestUpdate(ctx, &(input->data[0]), input->length);
+	if(result!=1){
+		cout << "EVP_DigestUpdate failed" << endl;
+		return NULL;
+	}
+	result=EVP_DigestFinal_ex(ctx, &(K->data[0]), &count);
+	if(result!=1){
+		cout << "EVP_DigestFinal failed" << endl;
+		return NULL;
+	}
+	K->length=32;
+
+	int maxK1Length=input->length-saltLength+64;
+	if(owner){
+		maxK1Length+=48;
+	}
+	uchar* K1=new uchar();
+	K1->data=new unsigned char[maxK1Length*64];
+	uchar* E=new uchar();
+	E->data=new unsigned char[maxK1Length*64];
+
+	int round=0;
+	bool okFlag=false;
+	int i,j, K1Length;
+	EVP_CIPHER_CTX *aesctx=EVP_CIPHER_CTX_new();
+	while(round<64 || okFlag==false){
+		K1Length=input->length-saltLength+K->length;
+		if(owner){
+			K1Length+=48;
+		}
+		K1->length=K1Length*64;
+		for(i=0; i<64; i++){
+			for(j=0; j<input->length-saltLength; j++){
+				K1->data[i*K1Length+j]=input->data[j];
+			}
+			for(j=0; j<K->length; j++){
+				K1->data[i*K1Length+input->length-saltLength+j]=K->data[j];
+			}
+			if(owner){
+				for(j=0; j<48; j++){
+					K1->data[i*K1Length+input->length-saltLength+K->length+j]=U->data[j];
+				}
+			}
+		}
+		/*cout << "K1 length: " << K1->length << endl;
+		
+		for(i=0; i<K1->length; i++){
+			printf("%02x ", K1->data[i]);
+		}
+		cout << endl;*/
+		// AES, CBC mode encrypt
+		int aescount;
+		result=EVP_CIPHER_CTX_reset(aesctx);
+		result=EVP_EncryptInit_ex2(aesctx, EVP_aes_128_cbc(), &(K->data[0]), &(K->data[16]), NULL);
+		if(result!=1){
+			cout << "EVP_EncryptInit failed " << endl;
+			return NULL;
+		}
+		result=EVP_CIPHER_CTX_set_padding(aesctx, 0);
+		if(result!=1){
+			cout << "EVP_CIPHER_CTX_set_padding failed" << endl;
+			return NULL;
+		}
+		result=EVP_EncryptUpdate(aesctx, &(E->data[0]), &aescount, &(K1->data[0]), K1->length);
+		if(result!=1){
+			cout << "EVP_EncryptUpdate failed" << endl;
+			return NULL;
+		}
+		// cout << aescount << endl;
+		int aesfinalCount;
+		result=EVP_EncryptFinal_ex(aesctx, &(E->data[aescount]), &aesfinalCount);
+		if(result!=1){
+			cout << "EVP_EncryptFinal failed" << endl;
+			//return false;
+		}
+		aescount+=aesfinalCount;
+		E->length=aescount;
+		/*
+		cout << "E length: " << E->length << endl;
+		for(i=0; i<E->length; i++){
+			printf("%02x ", (unsigned int)E->data[i]);
+		}
+		cout << endl;*/
+
+		int remainder=0;
+		for(i=0; i<16; i++){
+			remainder*=256;
+			remainder+=(unsigned int)E->data[i];
+			remainder%=3;
+		}
+	  
+		result=EVP_MD_CTX_reset(ctx);
+		if(remainder==0){
+			result=EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
+			K->length=32;
+		}else if(remainder==1){
+			result=EVP_DigestInit_ex(ctx, EVP_sha384(), NULL);
+			K->length=48;
+		}else if(remainder==2){
+			result=EVP_DigestInit_ex(ctx, EVP_sha512(), NULL);
+			K->length=64;
+		}else{
+			cout << "Modulo error" << endl;
+			return NULL;
+		}
+		if(result!=1){
+			cout << "EVP_DigestInit failed" << endl;
+			return NULL;
+		}
+		result=EVP_DigestUpdate(ctx, &(E->data[0]), E->length);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed" << endl;
+			return NULL;
+		}
+		result=EVP_DigestFinal_ex(ctx, &(K->data[0]), &count);
+		if(result!=1){
+			cout << "EVP_DigestFinal failed" << endl;
+			return NULL;
+		}
+		// cout << count << endl;
+		round++;
+		/*
+		printf("K in round %3d: ", round);
+		for(i=0; i<K->length; i++){
+			printf("%02x ", K->data[i]);
+		}
+		cout << endl;*/
+		
+		// cout << "E " << (unsigned int) E->data[E->length-1] << endl;
+		if((unsigned int)E->data[E->length-1]>(round-32)){
+			okFlag=false;
+		}else{
+			okFlag=true;
+		}
+	}
+	K->length=32;							
+	return K;
+}
+
+
+
+uchar* Encryption::trialO6(uchar* pwd){
+	// saslprep
+	int result;
+	char* in=new char[pwd->length+1];
+	int i;
+	for(i=0; i<pwd->length; i++){
+		in[i]=pwd->data[i];
+	}
+	in[pwd->length]='\0';
+	char* out;
+	int stringpreprc;
+	result=gsasl_saslprep(&in[0], GSASL_ALLOW_UNASSIGNED, &out, &stringpreprc);
+	if(result!=GSASL_OK){
+		printf("GSASL SASLprep error(%d): %s\n", stringpreprc, gsasl_strerror(stringpreprc));
+		return NULL;
+	}
+	/*
+	cout << "SASLprep" << endl;
+	cout << out << endl;
+	i=0;
+	cout << "SASLprep" << endl;
+	while(true){
+		if(out[i]!='\0'){
+			printf("%02x ", out[i]);
+			i++;
+		}else{
+			cout << endl;
+			break;
+		}
+		}*/
+
+	// concatenate pwd with Owner Validation Salt and U (48 bytes)
+	uchar* input=new uchar();
+	input->length=strlen(out)+56;
+	input->data=new unsigned char[input->length];
+	for(i=0; i<strlen(out); i++){
+		input->data[i]=out[i];
+	}
+	for(i=0; i<8; i++){
+		input->data[strlen(out)+i]=O->data[32+i];
+	}
+	for(i=0; i<48; i++){
+		input->data[strlen(out)+8+i]=U->data[i];
+	}
+	cout << "Input + Owner Validation Salt + U: ";
+	for(i=0; i<input->length; i++){
+		printf("%02x ", input->data[i]);
+	}
+	cout << endl;
+		
+	
+	return Hash6(input, true, 56);
+}
+
 
 uchar* Encryption::fileEncryptionKey(uchar* pwd){
 	if(error){

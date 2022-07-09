@@ -35,6 +35,9 @@ private:
 	uchar* fileEncryptionKey(uchar* pwd);
 	uchar* IDs[2];
 	uchar* trialU(uchar* fek);
+	uchar* trialU6(uchar* pwd);
+	uchar* trialO6(uchar* pwd);
+	uchar* Hash6(uchar* input, bool owner, int saltLength);
 	uchar* RC4EncryptionKey(uchar* pwd);
 	uchar* DecryptO(uchar* RC4fek);
 	
