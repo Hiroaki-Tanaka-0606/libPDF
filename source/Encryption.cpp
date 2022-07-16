@@ -602,7 +602,41 @@ bool Encryption::DecryptStream(Stream* stm){
 			
 
 	}else if(unsignedstrcmp(CFM, (unsigned char*)"AESV3")){
-		
+		unsigned char iv[16];
+		for(i=0; i<16; i++){
+			iv[i]=stm->data[i];
+		}
+
+		// AES, CBC mode decrypt
+		int aescount;
+		int result;
+		EVP_CIPHER_CTX *aesctx=EVP_CIPHER_CTX_new();
+		result=EVP_DecryptInit_ex2(aesctx, EVP_aes_256_cbc(), &(FEK->data[0]), iv, NULL);
+		if(result!=1){
+			cout << "EVP_DecryptInit failed " << endl;
+			return false;
+		}
+		result=EVP_DecryptUpdate(aesctx, &(stm->data[0]), &aescount, &(stm->encrypted[16]), (stm->length-16));
+		if(result!=1){
+			cout << "EVP_DecryptUpdate failed" << endl;
+			return false;
+		}
+		// cout << aescount << endl;
+		int aesfinalCount;
+		result=EVP_DecryptFinal_ex(aesctx, &(stm->data[aescount]), &aesfinalCount);
+		if(result!=1){
+			cout << "EVP_DecryptFinal failed" << endl;
+			ERR_print_errors_fp(stderr);
+			//return false;
+		}
+		aescount+=aesfinalCount;
+		/*
+		printf("AES decrypted %d bytes: ", aescount);
+		for(i=0; i<aescount; i++){
+			printf("%02x ", stm->data[i]);
+		}
+		cout << endl;*/
+		stm->length=aescount;
 	}
 	
 	return true;
@@ -667,6 +701,14 @@ bool Encryption::AuthOwner(uchar* pwd){
 			}
 		}
 		cout << "O and trial O match" << endl;
+		uchar* fek=fileEncryptionKey6(pwd, true);
+		cout << "FEK: ";
+		for(i=0; i<fek->length; i++){
+			printf("%02x ", fek->data[i]);
+		}
+		cout << endl;
+		FEK=fek;
+		FEKObtained=true;
 		return true;
 	}
 	return false;
@@ -740,6 +782,14 @@ bool Encryption::AuthUser(uchar* pwd){
 			}
 		}
 		cout << "U and trial U match" << endl;
+		uchar* fek=fileEncryptionKey6(pwd, false);
+		cout << "FEK: ";
+		for(i=0; i<fek->length; i++){
+			printf("%02x ", fek->data[i]);
+		}
+		cout << endl;
+		FEK=fek;
+		FEKObtained=true;
 		return true;
 	}
 	return false;
@@ -1271,6 +1321,90 @@ uchar* Encryption::fileEncryptionKey(uchar* pwd){
 	}
 
 	return NULL;
+}
+
+uchar* Encryption::fileEncryptionKey6(uchar* pwd, bool owner){
+	// saslprep
+	int result;
+	char* in=new char[pwd->length+1];
+	int i;
+	for(i=0; i<pwd->length; i++){
+		in[i]=pwd->data[i];
+	}
+	in[pwd->length]='\0';
+	char* out;
+	int stringpreprc;
+	result=gsasl_saslprep(&in[0], GSASL_ALLOW_UNASSIGNED, &out, &stringpreprc);
+	if(result!=GSASL_OK){
+		printf("GSASL SASLprep error(%d): %s\n", stringpreprc, gsasl_strerror(stringpreprc));
+		return NULL;
+	}
+
+	// user (owner=false): (pwd)(User key salt) -> hash -> decrypt UE
+	// owner (owner=true): (pwd)(Owner key salt)(U) -> hash -> decrypt OE
+	int inLength=strlen(out)+8;
+	int saltLength=8;
+	if(owner){
+		inLength+=48;
+		saltLength+=48;
+	}
+	uchar* input=new uchar();
+	input->length=inLength;
+	input->data=new unsigned char[inLength];
+	for(i=0; i<strlen(out); i++){
+		input->data[i]=out[i];
+	}
+	if(owner){
+		for(i=0; i<8; i++){
+			input->data[strlen(out)+i]=O->data[40+i];
+		}
+		for(i=0; i<48; i++){
+			input->data[strlen(out)+8+i]=U->data[i];
+		}
+	}else{
+		for(i=0; i<8; i++){
+			input->data[strlen(out)+i]=U->data[40+i];
+		}
+	}
+	uchar* key=Hash6(input, owner, saltLength);
+	uchar* fek=new uchar();
+	fek->length=32;
+	fek->data=new unsigned char[32];
+	// decrypt UE/OE AES-256 no padding, zero vector as iv
+	unsigned char iv[16];
+	for(i=0; i<16; i++){
+		iv[i]='\0';
+	}
+	int aescount;
+	EVP_CIPHER_CTX *aesctx=EVP_CIPHER_CTX_new();
+	result=EVP_DecryptInit_ex2(aesctx, EVP_aes_256_cbc(), &(key->data[0]), &iv[0], NULL);
+	if(result!=1){
+		cout << "EVP_DecryptInit failed " << endl;
+		return NULL;
+	}
+	result=EVP_CIPHER_CTX_set_padding(aesctx, 0);
+	if(result!=1){
+		cout << "EVP_CIPHER_CTX_set_padding failed" << endl;
+		return NULL;
+	}
+	if(owner){
+		result=EVP_DecryptUpdate(aesctx, &(fek->data[0]), &aescount, &(OE->data[0]), OE->length);
+	}else{
+		result=EVP_DecryptUpdate(aesctx, &(fek->data[0]), &aescount, &(UE->data[0]), UE->length);
+	}
+	if(result!=1){
+		cout << "EVP_DecryptUpdate failed" << endl;
+		return NULL;
+	}
+	int aesfinalCount;
+	result=EVP_DecryptFinal_ex(aesctx, &(fek->data[aescount]), &aesfinalCount);
+	if(result!=1){
+		cout << "EVP_EncryptFinal failed" << endl;
+		//return false;
+	}
+	aescount+=aesfinalCount;
+  
+	return fek;
 }
 
 uchar* Encryption::RC4EncryptionKey(uchar* pwd){

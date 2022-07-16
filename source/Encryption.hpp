@@ -33,6 +33,7 @@ private:
 	bool P[32];
 	bool encryptMeta;
 	uchar* fileEncryptionKey(uchar* pwd);
+	uchar* fileEncryptionKey6(uchar* pwd, bool owner);
 	uchar* IDs[2];
 	uchar* trialU(uchar* fek);
 	uchar* trialU6(uchar* pwd);
