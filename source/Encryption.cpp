@@ -282,7 +282,7 @@ Encryption::Encryption(Dictionary* encrypt, Array* ID):
 	}
 	cout << endl;
 	// Perms
-	if(V==6){
+	if(R==6){
 		void* permsValue;
 		int permsType;
 		
@@ -351,7 +351,98 @@ Encryption::Encryption(Dictionary* encrypt, Array* ID):
 			cout << "Owner authentication skipped" << endl;
 		}
 	}
+	
+	if(R==6 && FEKObtained){
+		// decrypt Perms
+		int aescount;
+		int result;
+		EVP_CIPHER_CTX *aesctx=EVP_CIPHER_CTX_new();
+		unsigned char iv[16];
+		uchar* Perms_decoded=new uchar();
+		Perms_decoded->data=new unsigned char[16];
+		for(i=0; i<16; i++){
+			iv[i]='\0';
+		}
+		result=EVP_DecryptInit_ex2(aesctx, EVP_aes_256_cbc(), &(FEK->data[0]), &iv[0], NULL);
+		if(result!=1){
+			cout << "EVP_DecryptInit failed " << endl;
+			error=true;
+			return;
+		}
+		result=EVP_CIPHER_CTX_set_padding(aesctx, 0);
+		if(result!=1){
+			cout << "EVP_CIPHER_CTX_set_padding failed" << endl;
+			error=true;
+			return;
+		}
+		result=EVP_DecryptUpdate(aesctx, &(Perms_decoded->data[0]), &aescount, &(Perms->data[0]), 16);
+		if(result!=1){
+			cout << "EVP_DecryptUpdate failed" << endl;
+		  error=true;
+			return;
+		}
+		int aesfinalCount;
+		result=EVP_DecryptFinal_ex(aesctx, &(Perms_decoded->data[aescount]), &aesfinalCount);
+		if(result!=1){
+			cout << "EVP_DecryptFinal failed" << endl;
+			ERR_print_errors_fp(stderr);
+			error=true;
+			return;
+		}
+		aescount+=aesfinalCount;
+
+		bool P2[32];
+		for(i=0; i<4; i++){
+			for(j=0; j<8; j++){
+				P2[i*8+j]=((Perms_decoded->data[i])>>(j))&1==1 ? true: false;
+			}
+		}
+		
+		cout << "Decoded Perms: ";
+		for(i=0; i<32; i++){
+			printf("%01d", P2[i]?1:0);
+		}
+		cout << endl;
+		for(i=0; i<32; i++){
+			if(P2[i]!=P[i]){
+				cout << "Mismatch found in Ps" << endl;
+				error=true;
+				return;
+			}
+		}
+		if(Perms_decoded->data[8]=='T'){
+			if(encryptMeta){
+				// ok
+			}else{
+				cout << "Mismatch found in encryptMeta" << endl;
+				error=true;
+				return;
+			}
+		}else if(Perms_decoded->data[8]=='F'){
+			if(!encryptMeta){
+				// ok
+			}else{
+				cout << "Mismatch found in encryptMeta" << endl;
+				error=true;
+				return;
+			}
+		}else{
+			cout << "EncryptMetadata not ok" << endl;
+			error=true;
+			return;
+		}
+		cout << "EncryptMetadata ok" << endl;
+		if(Perms_decoded->data[9]=='a' && Perms_decoded->data[10]=='d' && Perms_decoded->data[11]=='b'){
+			cout << "'adb' ok" << endl;
+		}else{
+			cout << "'adb' not ok " << endl;
+			error=true;
+			return;
+		}
+	}
+		
 }
+
 
 bool Encryption::DecryptStream(Stream* stm){
 	if(!FEKObtained){

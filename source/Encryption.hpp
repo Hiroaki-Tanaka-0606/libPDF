@@ -41,7 +41,6 @@ private:
 	uchar* Hash6(uchar* input, bool owner, int saltLength);
 	uchar* RC4EncryptionKey(uchar* pwd);
 	uchar* DecryptO(uchar* RC4fek);
-	
 public:
 	Encryption(Dictionary* encrypt, Array* ID);
 	bool AuthUser(uchar* pwd);
