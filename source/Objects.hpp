@@ -4,6 +4,8 @@
 #include <string>
 #include <cstddef>
 
+#define INCLUDE_OBJECTS 1
+
 using namespace std;
 
 class Type{
@@ -48,6 +50,7 @@ public:
 	void Print();
 	int Search(unsigned char* key);
 	bool Read(unsigned char* key, void** value, int* type);
+	bool Read(int index, unsigned char** key, void** value, int* type);
 	void Merge(Dictionary dict2);
 	int getSize();
 };

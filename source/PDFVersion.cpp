@@ -6,7 +6,8 @@
 using namespace std;
 
 PDFVersion::PDFVersion():
-	error(false)
+	error(false),
+	valid(false)
 {
 	
 }
@@ -50,6 +51,7 @@ bool PDFVersion::set(char* label){
 		}
 	}
 	print();
+	valid=true;
 	return true;
 }
 
@@ -60,4 +62,8 @@ void PDFVersion::print(){
 	sprintf(v, "%1d.%1d", major, minor);
 	// cout << int(v[3]) << endl;
 	// cout << strlen(v) << endl;
+}
+
+bool PDFVersion::isValid(){
+	return (!error) && valid;
 }

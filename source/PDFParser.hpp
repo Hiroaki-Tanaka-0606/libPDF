@@ -4,8 +4,27 @@
 #include <string>
 #include "PDFVersion.hpp"
 #include "Objects.hpp"
-#define INCLUDE_OBJECTS 1
 #include "Encryption.hpp"
+
+#define INCLUDE_PARSER 1
+
+// White-space characters
+#define NUL char(0x00)
+#define TAB char(0x09)
+#define LF  char(0x0A)
+#define FF  char(0x0C)
+#define CR  char(0x0D)
+#define SP  char(0x20)
+// EOL: CR, LF, CR+LF
+
+// header and footer
+#define HEADER "%PDF-"
+#define FOOTER "%%EOF"
+#define SXREF  "startxref"
+#define TRAIL  "trailer"
+#define XREF   "xref"
+#define STM    "stream"
+#define ESTM   "endstream"
 
 using namespace std;
 

@@ -62,6 +62,14 @@ bool Dictionary::Read(unsigned char* key, void** value, int* type){
 	return true;
 }
 
+bool Dictionary::Read(int index, unsigned char** key, void** value, int* type){
+	*key=keys[index];
+	*value=values[index];
+	*type=types[index];
+	return true;
+}
+
+
 void Dictionary::Append(unsigned char* key, void* value, int type){
 	// check whether the same key already exists
 	if(Search(key)>=0){
