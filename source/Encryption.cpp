@@ -449,18 +449,35 @@ bool Encryption::DecryptStream(Stream* stm){
 		cout << "Not yet authenticated" << endl;
 		return false;
 	}
+	if(stm->decrypted){
+		// already decrypted
+		return true;
+	}
+	unsigned char* type;
+	int typeType;
+	if(stm->StmDict.Read((unsigned char*)"Type", (void**)&type, &typeType) && typeType==Type::Name){
+		// check whether the type is XRef
+		if(unsignedstrcmp(type, (unsigned char*)"XRef")){
+			// XRef is not encrypted
+			stm->decrypted=true;
+			return true;
+		}
+	}
 	// copy the original data to encrypted
-	int padLength=16-stm->length%16;
-	stm->encrypted=new unsigned char[stm->length+padLength+1];
+	// int padLength=16-stm->length%16;
+	// stm->encrypted=new unsigned char[stm->length+padLength+1];
+	stm->encrypted=new unsigned char[stm->length+1];
 	int i;
 	for(i=0; i<stm->length; i++){
 		stm->encrypted[i]=stm->data[i];
 	}
-	for(i=0; i<padLength; i++){
-		stm->encrypted[stm->length+i]=(unsigned char)padLength;
-	}
-	stm->encrypted[stm->length+padLength]='\0';
-	stm->elength=stm->length+padLength;
+	// for(i=0; i<padLength; i++){
+	// 	stm->encrypted[stm->length+i]=(unsigned char)padLength;
+	// }
+	// stm->encrypted[stm->length+padLength]='\0';
+	// stm->elength=stm->length+padLength;
+	stm->encrypted[stm->length]='\0';
+	stm->elength=stm->length;
 
 	/*
 	printf("Encrypted (%d bytes): ", stm->elength);
@@ -471,6 +488,7 @@ bool Encryption::DecryptStream(Stream* stm){
 
 	if(unsignedstrcmp(StmF, Idn)){
 		// Identity filter: do nothing
+		stm->decrypted=true;
 		return true;
 	}
 	// use StmF
@@ -576,7 +594,7 @@ bool Encryption::DecryptStream(Stream* stm){
 			cout << "EVP_CIPHER_CTX_set_key_length failed" << endl;
 			return NULL;
 		}
-		result=EVP_DecryptUpdate(rc4ctx, &(stm->data[0]), &rc4count, &(stm->encrypted[0]), stm->length);
+		result=EVP_DecryptUpdate(rc4ctx, &(stm->data[0]), &rc4count, &(stm->encrypted[0]), stm->elength);
 		if(result!=1){
 			cout << "EVP_DecryptUpdate failed" << endl;
 			return NULL;
@@ -669,7 +687,7 @@ bool Encryption::DecryptStream(Stream* stm){
 			return false;
 		}
 	  // printf("%p %p %d\n", &(stm->encrypted[0]), &(stm->encrypted[16]), stm->elength-16);
-		result=EVP_DecryptUpdate(aesctx, &(stm->data[0]), &aescount, &(stm->encrypted[16]), (stm->length-16));
+		result=EVP_DecryptUpdate(aesctx, &(stm->data[0]), &aescount, &(stm->encrypted[16]), (stm->elength-16));
 		if(result!=1){
 			cout << "EVP_DecryptUpdate failed" << endl;
 			return false;
@@ -680,6 +698,8 @@ bool Encryption::DecryptStream(Stream* stm){
 		if(result!=1){
 			cout << "EVP_DecryptFinal failed" << endl;
 			ERR_print_errors_fp(stderr);
+			// cout << aescount << endl;
+			// cout << stm->length << endl;
 			//return false;
 		}
 		aescount+=aesfinalCount;
@@ -707,7 +727,7 @@ bool Encryption::DecryptStream(Stream* stm){
 			cout << "EVP_DecryptInit failed " << endl;
 			return false;
 		}
-		result=EVP_DecryptUpdate(aesctx, &(stm->data[0]), &aescount, &(stm->encrypted[16]), (stm->length-16));
+		result=EVP_DecryptUpdate(aesctx, &(stm->data[0]), &aescount, &(stm->encrypted[16]), (stm->elength-16));
 		if(result!=1){
 			cout << "EVP_DecryptUpdate failed" << endl;
 			return false;
@@ -718,6 +738,7 @@ bool Encryption::DecryptStream(Stream* stm){
 		if(result!=1){
 			cout << "EVP_DecryptFinal failed" << endl;
 			ERR_print_errors_fp(stderr);
+			
 			//return false;
 		}
 		aescount+=aesfinalCount;
@@ -729,7 +750,7 @@ bool Encryption::DecryptStream(Stream* stm){
 		cout << endl;*/
 		stm->length=aescount;
 	}
-	
+	stm->decrypted=true;
 	return true;
 }
 

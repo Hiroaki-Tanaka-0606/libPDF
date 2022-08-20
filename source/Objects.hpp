@@ -53,6 +53,7 @@ public:
 	bool Read(int index, unsigned char** key, void** value, int* type);
 	void Merge(Dictionary dict2);
 	int getSize();
+	void Delete(int index);
 };
 
 class Array{
@@ -93,12 +94,13 @@ public:
 	int objNumber;
 	int genNumber;
 	Dictionary StmDict;
-	unsigned char* data;
-	unsigned char* decoded;
-	unsigned char* encrypted;
+	unsigned char* data; // decrypted, encoded
+	unsigned char* decoded; // decrypted, decoded
+	unsigned char* encrypted; // encrypted, encoded
 	int length;
-	int elength;
 	int dlength;
+	int elength;
+	bool decrypted;
 	Stream();
 	bool Decode();
 };

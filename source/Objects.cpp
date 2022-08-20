@@ -111,6 +111,12 @@ void Dictionary::Print(int indent){
 	}
 }
 
+void Dictionary::Delete(int index){
+	keys.erase(keys.begin()+index);
+	values.erase(values.begin()+index);
+	types.erase(types.begin()+index);
+}
+
 Array::Array(){
 }
 
@@ -170,8 +176,9 @@ Indirect::Indirect(){
 	objStream=false;
 }
 
-Stream::Stream(){
-	
+Stream::Stream():
+	decrypted(false)
+{	
 }
 
 

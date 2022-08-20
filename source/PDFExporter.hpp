@@ -16,6 +16,7 @@ private:
 	void writeData(char* buffer);
 	void writeData(uchar* binary);
 	vector<unsigned char> exportObj(void* obj, int objType);
+	double literalStringBorder;
 public:
 	PDFExporter(PDFParser* parser);
 	bool exportToFile(char* fileName);

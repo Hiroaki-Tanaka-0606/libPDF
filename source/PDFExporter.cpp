@@ -9,7 +9,8 @@ using namespace std;
 
 PDFExporter::PDFExporter(PDFParser* parser):
 	PP(parser),
-	count(0)
+	count(0),
+	literalStringBorder(0.3)
 {
 }
 
@@ -50,6 +51,7 @@ bool PDFExporter::exportToFile(char* fileName){
 			printf("Ref #%4d: genNumber %2d\n", i, PP->Reference[i]->genNumber);
 		}
 	}
+	
 	// export
 	for(i=0; i<PP->ReferenceSize; i++){
 		if(PP->Reference[i]->objStream ||  !PP->Reference[i]->used){
@@ -76,6 +78,55 @@ bool PDFExporter::exportToFile(char* fileName){
 			writeData(buffer);
 		}
 	}
+	// footer
+	// xref table
+	cout << "Export xref table" << endl;
+	int trailerPosition=count;
+	sprintf(buffer, "xref%c%c", CR, LF);
+	writeData(buffer);
+	sprintf(buffer, "0 %d%c%c", PP->ReferenceSize, CR, LF);
+	writeData(buffer);
+	for(i=0; i<PP->ReferenceSize; i++){
+		int nextFreeNumber;
+		if(!(PP->Reference[i]->objStream) && PP->Reference[i]->used){
+			// used
+			// no offset
+			sprintf(buffer, "%010d %05d %c%c%c", PP->Reference[i]->position, PP->Reference[i]->genNumber,'n', CR, LF);
+			writeData(buffer);
+		}else{
+			// free
+			nextFreeNumber=0;
+			for(j=i+1; j<PP->ReferenceSize; j++){
+				if(PP->Reference[j]->objStream || !PP->Reference[j]->used){
+					nextFreeNumber=j;
+					break;
+				}
+			}
+			sprintf(buffer, "%010d %05d %c%c%c", nextFreeNumber, PP->Reference[i]->genNumber, 'f', CR, LF);
+			writeData(buffer);
+		}
+	}
+	// trailer
+	// remove "Encrypt"
+	int encryptIndex=PP->trailer.Search((unsigned char*)"Encrypt");
+	if(encryptIndex>=0){
+		PP->trailer.Delete(encryptIndex);
+	}
+	cout << "Export trailer" << endl;
+	sprintf(buffer, "trailer%c%c", CR, LF);
+	writeData(buffer);	
+	vector<unsigned char> data=exportObj((void*)&(PP->trailer), Type::Dict);
+  // PP->trailer.Print();
+	uchar* data_uc=new uchar();
+	data_uc->length=data.size();
+	data_uc->data=new unsigned char[data.size()];
+	for(i=0; i<data.size(); i++){
+		data_uc->data[i]=data[i];
+	}
+	writeData(data_uc);
+	// startxref
+	sprintf(buffer, "%c%cstartxref%c%c%d%c%c%%%%EOF", CR, LF, CR, LF, trailerPosition, CR, LF);
+	writeData(buffer);
 	file->close();
 	return true;
 }
@@ -95,11 +146,13 @@ void PDFExporter::writeData(uchar* binary){
 
 vector<unsigned char> PDFExporter::exportObj(void* obj, int objType){
 	vector<unsigned char> ret;
-	int i;
+	int i, j;
 	bool* obj_b;
 	int* obj_i;
 	double* obj_do;
 	unsigned char* obj_n;
+	uchar* obj_st;
+	int numNormalLetters;
 	int len;
 	char buffer[1024];
 	Array* obj_a;
@@ -142,6 +195,80 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType){
 		sprintf(buffer, "%f", *obj_do);
 		for(i=0; i<strlen(buffer); i++){
 			ret.push_back((unsigned char)buffer[i]);
+		}
+		break;
+	case Type::String:
+		// count the number of normal letters (0x21~0x7E)
+		obj_st=(uchar*)obj;
+		numNormalLetters=0;
+		for(i=0; i<obj_st->length; i++){
+			if(0x21<=obj_st->data[i] && obj_st->data[i]<=0x7E){
+				numNormalLetters++;
+			}
+		}
+		if(1.0*numNormalLetters/obj_st->length>literalStringBorder){
+			// literal
+			ret.push_back((unsigned char)'(');
+			for(i=0; i<obj_st->length; i++){
+				switch(obj_st->data[i]){
+				case 0x0A: // line feed
+					ret.push_back((unsigned char)'\\');
+					ret.push_back((unsigned char)'n');
+					break;
+				case 0x0D: // CR
+					ret.push_back((unsigned char)'\\');
+					ret.push_back((unsigned char)'r');
+					break;
+				case 0x09: // tab
+					ret.push_back((unsigned char)'\\');
+					ret.push_back((unsigned char)'t');
+					break;
+				case 0x08: // backspace
+					ret.push_back((unsigned char)'\\');
+					ret.push_back((unsigned char)'b');
+					break;
+				case 0x0C: // FF
+					ret.push_back((unsigned char)'\\');
+					ret.push_back((unsigned char)'f');
+					break;
+				case 0x28: // left parenthesis
+					ret.push_back((unsigned char)'\\');
+					ret.push_back((unsigned char)'(');
+					break;
+				case 0x29: // right parenthesis
+					ret.push_back((unsigned char)'\\');
+					ret.push_back((unsigned char)')');
+					break;
+				case 0x5C: // backslash
+					ret.push_back((unsigned char)'\\');
+					ret.push_back((unsigned char)'\\');
+					break;
+				default:
+					if(0x21<=obj_st->data[i] && obj_st->data[i] <=0x7E){
+						// normal letter
+						ret.push_back(obj_st->data[i]);
+					}else{
+						// octal
+						sprintf(buffer, "\\%03o", obj_st->data[i]);
+						for(j=0; j<strlen(buffer); j++){
+							ret.push_back((unsigned char)buffer[j]);
+						}
+					}
+					break;
+				}
+			}
+			
+			ret.push_back((unsigned char)')');
+		}else{
+			// hexadecimal
+			ret.push_back((unsigned char)'<');
+			for(i=0; i<obj_st->length; i++){
+				sprintf(buffer, "%02x", obj_st->data[i]);
+				ret.push_back((unsigned char)buffer[0]);
+				ret.push_back((unsigned char)buffer[1]);
+			}
+			ret.push_back((unsigned char)'>');
+			
 		}
 		break;
 	case Type::Name:
@@ -202,8 +329,14 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType){
 			ret.push_back((unsigned char)buffer[i]);
 		}
 		// stream data
+		if(PP->encrypted && obj_s->decrypted==false){
+			PP->encryptObj->DecryptStream(obj_s);
+		}
+		for(i=0; i<obj_s->length; i++){
+			ret.push_back(obj_s->data[i]);
+		}
 		// stream footer
-		sprintf(buffer, "endstream");
+		sprintf(buffer, "%c%cendstream", CR, LF);
 		for(i=0; i<strlen(buffer); i++){
 			ret.push_back((unsigned char)buffer[i]);
 		}
