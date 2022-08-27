@@ -13,7 +13,8 @@ PDFParser::PDFParser(char* fileName):
 	// Member initializer list
 	file(fileName),
 	error(false),
-	encrypted(false)
+	encrypted(false),
+	lastXRefStm(-1)
 {
 	if(!file){
 		cout << "Error in opening the input file" << endl;
@@ -1040,6 +1041,12 @@ int PDFParser::readXRef(int position){
 			printf("%02x ", (unsigned int)XRefStm.data[i]);
 			}
 			cout << endl;*/
+
+		if(lastXRefStm<0){
+			// this is the last XRef stream
+			lastXRefStm=XRefStm.objNumber;
+			cout << "This is the last XRef stream" << endl;
+		}
 		
 		// decode xref stream
 		if(!XRefStm.Decode()){
@@ -1075,7 +1082,23 @@ int PDFParser::readXRef(int position){
 		}
 
 		// read Index
-		int firstIndex, numEntries;
+		int numSubsections=1;
+		if(XRefStm.StmDict.Search((unsigned char*)"Index")>=0){
+			int IndexType;
+			void* IndexValue;
+			if(XRefStm.StmDict.Read((unsigned char*)"Index", (void**)&IndexValue, &IndexType) && IndexType==Type::Array){
+				Array* IndexArray=(Array*)IndexValue;
+				int IndexArraySize=IndexArray->getSize();
+				if(IndexArraySize%2!=0){
+					cout << "Error: Index Array contains odd number of elements" << endl;
+					return 0;
+				}
+				numSubsections=IndexArraySize/2;
+			}
+		}
+				
+		int firstIndex[numSubsections];
+		int numEntries[numSubsections];
 		if(XRefStm.StmDict.Search((unsigned char*)"Index")>=0){
 			int IndexType;
 			void* IndexValue;
@@ -1083,27 +1106,29 @@ int PDFParser::readXRef(int position){
 				Array* IndexArray=(Array*)IndexValue;
 				void* IndexElementValue;
 				int IndexElementType;
-				if(IndexArray->Read(0, (void**)&IndexElementValue, &IndexElementType)){
-					if(IndexElementType==Type::Int){
-						firstIndex=*((int*)IndexElementValue);
+				for(i=0; i<numSubsections; i++){
+					if(IndexArray->Read(2*i, (void**)&IndexElementValue, &IndexElementType)){
+						if(IndexElementType==Type::Int){
+							firstIndex[i]=*((int*)IndexElementValue);
+						}else{
+							cout << "Error: invalid type of Index element" << endl;
+							return 0;
+						}
 					}else{
-						cout << "Error: invalid type of Index element" << endl;
+						cout << "Error in reading Index element" << endl;
 						return 0;
 					}
-				}else{
-					cout << "Error in reading Index element" << endl;
-					return 0;
-				}
-				if(IndexArray->Read(1, (void**)&IndexElementValue, &IndexElementType)){
-					if(IndexElementType==Type::Int){
-						numEntries=*((int*)IndexElementValue);
+					if(IndexArray->Read(2*i+1, (void**)&IndexElementValue, &IndexElementType)){
+						if(IndexElementType==Type::Int){
+							numEntries[i]=*((int*)IndexElementValue);
+						}else{
+							cout << "Error: invalid type of Index element" << endl;
+							return 0;
+						}
 					}else{
-						cout << "Error: invalid type of Index element" << endl;
+						cout << "Error in reading Index element" << endl;
 						return 0;
 					}
-				}else{
-					cout << "Error in reading Index element" << endl;
-					return 0;
 				}
 			}else{
 				cout << "Error in reading Index array" << endl;
@@ -1113,67 +1138,73 @@ int PDFParser::readXRef(int position){
 			// if Index does not exist, the default value is [0 Size]
 			int SizeType;
 			void* SizeValue;
-			firstIndex=0;
+			firstIndex[0]=0;
 			if(XRefStm.StmDict.Read((unsigned char*)"Size", (void**)&SizeValue, &SizeType) && SizeType==Type::Int){
-				numEntries=*((int*)SizeValue);
+				numEntries[0]=*((int*)SizeValue);
 			}else{
 				cout << "Error in reading Size" << endl;
 				return 0;
 			}
 		}
 		
-		printf("Decoded XRef: %d bytes, %d entries\n", XRefStm.dlength, numEntries);
-		/*
+		int totalEntries=0;
+		for(i=0; i<numSubsections; i++){
+			totalEntries+=numEntries[i];
+		}
+		printf("Decoded XRef: %d bytes, %d entries\n", XRefStm.dlength, totalEntries);
 			for(i=0; i<XRefStm.dlength; i++){
 			printf("%02x ", (unsigned int)XRefStm.decoded[i]);
 			if((i+1)%sumField==0){
 			cout << endl;
 			}
-			}*/
+			}
 
 		// record the information to Reference
-		if(XRefStm.dlength/sumField!=numEntries){
+		if(XRefStm.dlength/sumField!=totalEntries){
 			cout << "Error: size mismatch in decoded data" << endl;
 			return 0;
 		}
 		int XRefStmIndex=0;
 		int XRefStmValue[3];
-		for(i=0; i<numEntries; i++){
-			for(j=0; j<3; j++){
-				XRefStmValue[j]=0;
-				for(k=0; k<field[j]; k++){
-					XRefStmValue[j]=256*XRefStmValue[j]+(unsigned int)XRefStm.decoded[XRefStmIndex];
-					XRefStmIndex++;
+		int i2;
+		for(i2=0; i2<numSubsections; i2++){
+			for(i=0; i<numEntries[i2]; i++){
+				for(j=0; j<3; j++){
+					XRefStmValue[j]=0;
+					for(k=0; k<field[j]; k++){
+						XRefStmValue[j]=256*XRefStmValue[j]+(unsigned int)XRefStm.decoded[XRefStmIndex];
+						XRefStmIndex++;
+					}
 				}
-			}
-			// printf("%d %d %d\n", XRefStmValue[0], XRefStmValue[1], XRefStmValue[2]);
-			int currentObjNumber=i+firstIndex;
-			if(Reference[currentObjNumber]->objNumber>=0){
-				printf("XRef #%d is already read\n", currentObjNumber);
-				continue;
-			}
-			switch(XRefStmValue[0]){
-			case 0:
-				// free object
-				Reference[currentObjNumber]->used=false;
-				Reference[currentObjNumber]->objNumber=currentObjNumber;
-				Reference[currentObjNumber]->position=XRefStmValue[1];
-				Reference[currentObjNumber]->genNumber=XRefStmValue[2];
-				break;
-			case 1:
-				// used object
-				Reference[currentObjNumber]->used=true;
-				Reference[currentObjNumber]->objNumber=currentObjNumber;
-				Reference[currentObjNumber]->position=XRefStmValue[1];
-				Reference[currentObjNumber]->genNumber=XRefStmValue[2];
-				break;
-			case 2:
-				// object in compressed object
-				Reference[currentObjNumber]->used=true;
-				Reference[currentObjNumber]->objStream=true;
-				Reference[currentObjNumber]->objNumber=currentObjNumber;
-				Reference[currentObjNumber]->objStreamNumber=XRefStmValue[1];
-				Reference[currentObjNumber]->objStreamIndex=XRefStmValue[2];
+				// printf("%d %d %d\n", XRefStmValue[0], XRefStmValue[1], XRefStmValue[2]);
+				int currentObjNumber=i+firstIndex[i2];
+				if(Reference[currentObjNumber]->objNumber>=0){
+					printf("XRef #%d is already read\n", currentObjNumber);
+					continue;
+				}
+				switch(XRefStmValue[0]){
+				case 0:
+					// free object
+					Reference[currentObjNumber]->used=false;
+					Reference[currentObjNumber]->objNumber=currentObjNumber;
+					Reference[currentObjNumber]->position=XRefStmValue[1];
+					Reference[currentObjNumber]->genNumber=XRefStmValue[2];
+					break;
+				case 1:
+					// used object
+					Reference[currentObjNumber]->used=true;
+					Reference[currentObjNumber]->objNumber=currentObjNumber;
+					Reference[currentObjNumber]->position=XRefStmValue[1];
+					Reference[currentObjNumber]->genNumber=XRefStmValue[2];
+					break;
+				case 2:
+					// object in compressed object
+					Reference[currentObjNumber]->used=true;
+					Reference[currentObjNumber]->objStream=true;
+					Reference[currentObjNumber]->objNumber=currentObjNumber;
+					Reference[currentObjNumber]->objStreamNumber=XRefStmValue[1];
+					Reference[currentObjNumber]->objStreamIndex=XRefStmValue[2];
+				}
 			}
 		}
 

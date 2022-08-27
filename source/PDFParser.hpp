@@ -88,6 +88,7 @@ public:
 	int ReferenceSize;
 	Page** Pages;
 	int PagesSize;
+	int lastXRefStm;
 	bool hasError();
 	bool readRefObj(Indirect* ref, void** object, int* objType);
 	bool readPage(int index, unsigned char* key, void** value, int* type, bool inheritable);

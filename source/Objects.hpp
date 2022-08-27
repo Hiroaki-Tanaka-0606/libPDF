@@ -54,6 +54,7 @@ public:
 	void Merge(Dictionary dict2);
 	int getSize();
 	void Delete(int index);
+	bool Update(unsigned char* key, void* value, int type);
 };
 
 class Array{
@@ -94,15 +95,16 @@ public:
 	int objNumber;
 	int genNumber;
 	Dictionary StmDict;
-	unsigned char* data; // decrypted, encoded
 	unsigned char* decoded; // decrypted, decoded
+	unsigned char* data; // decrypted, encoded
 	unsigned char* encrypted; // encrypted, encoded
-	int length;
-	int dlength;
-	int elength;
+	int dlength; // len(decoded)
+	int length;  // len(data)
+	int elength; // len(encrypted)
 	bool decrypted;
 	Stream();
 	bool Decode();
+	bool Encode();
 };
 
 class Page{
@@ -120,5 +122,8 @@ bool unsignedstrcmp(unsigned char* a, unsigned char* b);
 void unsignedstrcpy(unsigned char* dest, unsigned char* data);
 
 int decodeData(unsigned char* encoded, unsigned char* filter, Dictionary* parm, int encodedLength, unsigned char** decoded);
+int encodeData(unsigned char* decoded, unsigned char* filter, Dictionary* parm, int decodedLength, unsigned char** encoded);
 
 int PNGPredictor(unsigned char** pointer, int length, Dictionary* columns);
+
+int byteSize(int n);

@@ -60,50 +60,122 @@ bool PDFExporter::exportToFile(char* fileName){
 		printf("Export Ref #%4d\n", i);
 		void* refObj;
 		int objType;
-		if(PP->readRefObj(PP->Reference[i], &refObj, &objType)){
-			printf("Object type: %d\n", objType);
-			// (objNum) (genNum) obj
-			PP->Reference[i]->position=count;
-			sprintf(buffer, "%d %d obj%c%c", i, PP->Reference[i]->genNumber, CR, LF);
-			writeData(buffer);
-			vector<unsigned char> data=exportObj(refObj, objType);
-			uchar* data_uc=new uchar();
-			data_uc->length=data.size();
-			data_uc->data=new unsigned char[data.size()];
-			for(j=0; j<data.size(); j++){
-				data_uc->data[j]=data[j];
+		if(i==PP->lastXRefStm){
+			// construct XRef stream
+			constructXRefStm();
+		}else{
+			if(PP->readRefObj(PP->Reference[i], &refObj, &objType)){
+				printf("Object type: %d\n", objType);
+			}else{
+				cout << "ReadRefObj error" << endl;
+				continue;
 			}
-			writeData(data_uc);
-			sprintf(buffer, "%c%cendobj%c%c", CR, LF, CR, LF);
-			writeData(buffer);
 		}
+		// (objNum) (genNum) obj
+		PP->Reference[i]->position=count;
+		sprintf(buffer, "%d %d obj%c%c", i, PP->Reference[i]->genNumber, CR, LF);
+		writeData(buffer);
+		vector<unsigned char> data;
+		if(i==PP->lastXRefStm){
+			data=exportObj(&XRefStm, Type::Stream);
+		}else{
+			data=exportObj(refObj, objType);
+		}
+		uchar* data_uc=new uchar();
+		data_uc->length=data.size();
+		data_uc->data=new unsigned char[data.size()];
+		for(j=0; j<data.size(); j++){
+			data_uc->data[j]=data[j];
+		}
+		writeData(data_uc);
+		sprintf(buffer, "%c%cendobj%c%c", CR, LF, CR, LF);
+		writeData(buffer);
 	}
 	// footer
 	// xref table
+	// objStream cannot be included
 	cout << "Export xref table" << endl;
 	int trailerPosition=count;
 	sprintf(buffer, "xref%c%c", CR, LF);
 	writeData(buffer);
-	sprintf(buffer, "0 %d%c%c", PP->ReferenceSize, CR, LF);
-	writeData(buffer);
+	// 0 -> free
+	// 1 -> used
+	// 2 -> in the object stream
+	int* typeList=new int[PP->ReferenceSize];
 	for(i=0; i<PP->ReferenceSize; i++){
-		int nextFreeNumber;
-		if(!(PP->Reference[i]->objStream) && PP->Reference[i]->used){
-			// used
-			// no offset
-			sprintf(buffer, "%010d %05d %c%c%c", PP->Reference[i]->position, PP->Reference[i]->genNumber,'n', CR, LF);
-			writeData(buffer);
+		if(PP->Reference[i]->objStream){
+			typeList[i]=2;
+		}else if(PP->Reference[i]->used){
+			typeList[i]=1;
 		}else{
-			// free
-			nextFreeNumber=0;
-			for(j=i+1; j<PP->ReferenceSize; j++){
-				if(PP->Reference[j]->objStream || !PP->Reference[j]->used){
-					nextFreeNumber=j;
-					break;
-				}
+			typeList[i]=0;
+		}
+	}
+	int numSubsections=1;
+	i=0;
+	while(i<PP->ReferenceSize){
+		if(typeList[i]==0 || typeList[i]==1){
+			i++;
+			continue;
+		}else{
+			while(typeList[i]==2 && i<PP->ReferenceSize){
+				i++;
 			}
-			sprintf(buffer, "%010d %05d %c%c%c", nextFreeNumber, PP->Reference[i]->genNumber, 'f', CR, LF);
-			writeData(buffer);
+			if(i<PP->ReferenceSize){
+				numSubsections++;
+			}
+		}
+	}
+	int firstIndex[numSubsections];
+	int numEntries[numSubsections];
+	bool in_list=true;
+	i=0;
+	int subsectionIndex=0;
+	firstIndex[0]=0;
+	while(i<PP->ReferenceSize){
+		if(typeList[i]==0 || typeList[i]==1){
+			i++;
+			continue;
+		}else{
+			in_list=false;
+			numEntries[subsectionIndex]=i-firstIndex[subsectionIndex];
+			while(typeList[i]==2 && i<PP->ReferenceSize){
+				i++;
+			}
+			if(i<PP->ReferenceSize){
+				subsectionIndex++;
+				firstIndex[subsectionIndex]=i;
+				in_list=true;
+			}
+		}
+	}
+	if(in_list){
+		numEntries[subsectionIndex]=i-firstIndex[subsectionIndex];
+	}
+	int k;
+	for(k=0; k<numSubsections; k++){
+		sprintf(buffer, "%d %d%c%c", firstIndex[k], numEntries[k], CR, LF);
+		writeData(buffer);
+		for(i=0; i<numEntries[k]; i++){
+			int index=i+firstIndex[k];
+			int nextFreeNumber;
+			if(!(PP->Reference[index]->objStream) && PP->Reference[index]->used){
+				// used
+				// no offset
+				sprintf(buffer, "%010d %05d %c%c%c", PP->Reference[index]->position, PP->Reference[index]->genNumber,'n', CR, LF);
+				writeData(buffer);
+			}else{
+				// free
+				nextFreeNumber=0;
+				for(j=index+1; j<PP->ReferenceSize; j++){
+					if(!PP->Reference[j]->objStream && !PP->Reference[j]->used){
+						nextFreeNumber=j;
+						break;
+					}
+				}
+				sprintf(buffer, "%010d %05d %c%c%c", nextFreeNumber, PP->Reference[index]->genNumber, 'f', CR, LF);
+				writeData(buffer);
+			}
 		}
 	}
 	// trailer
@@ -112,22 +184,34 @@ bool PDFExporter::exportToFile(char* fileName){
 	if(encryptIndex>=0){
 		PP->trailer.Delete(encryptIndex);
 	}
+	// remove "Prev"
+	int prevIndex=PP->trailer.Search((unsigned char*)"Prev");
+	if(prevIndex>=0){
+		PP->trailer.Delete(prevIndex);
+	}
+	// set new XRefStm position
+	int* newXRefStmPos=new int(PP->Reference[PP->lastXRefStm]->position);
+	if(!PP->trailer.Update((unsigned char*)"XRefStm", (void*)newXRefStmPos, Type::Int)){
+		PP->trailer.Append((unsigned char*)"XRefStm", (void*)newXRefStmPos, Type::Int);
+	}
+	
 	cout << "Export trailer" << endl;
 	sprintf(buffer, "trailer%c%c", CR, LF);
 	writeData(buffer);	
-	vector<unsigned char> data=exportObj((void*)&(PP->trailer), Type::Dict);
+	vector<unsigned char> data2=exportObj((void*)&(PP->trailer), Type::Dict);
   // PP->trailer.Print();
-	uchar* data_uc=new uchar();
-	data_uc->length=data.size();
-	data_uc->data=new unsigned char[data.size()];
-	for(i=0; i<data.size(); i++){
-		data_uc->data[i]=data[i];
+	uchar* data_uc2=new uchar();
+	data_uc2->length=data2.size();
+	data_uc2->data=new unsigned char[data2.size()];
+	for(i=0; i<data2.size(); i++){
+		data_uc2->data[i]=data2[i];
 	}
-	writeData(data_uc);
+	writeData(data_uc2);
 	// startxref
 	sprintf(buffer, "%c%cstartxref%c%c%d%c%c%%%%EOF", CR, LF, CR, LF, trailerPosition, CR, LF);
 	writeData(buffer);
 	file->close();
+	cout << "Export finished" << endl;
 	return true;
 }
 
@@ -356,4 +440,157 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType){
 		break;
 	}
 	return ret;
+}
+
+void PDFExporter::constructXRefStm(){
+	cout << "Construct XRef stream" << endl;
+	XRefStm.objNumber=PP->lastXRefStm;
+	XRefStm.genNumber=0;
+	unsigned char* typeObj=new unsigned char[5];
+	unsigned char* filterObj=new unsigned char[12];
+	unsignedstrcpy(typeObj, (unsigned char*)"XRef");
+	unsignedstrcpy(filterObj, (unsigned char*)"FlateDecode");
+	XRefStm.StmDict.Append((unsigned char*)"Type", (void*)typeObj, Type::Name);
+	XRefStm.StmDict.Append((unsigned char*)"Filter", (void*)filterObj, Type::Name);
+	XRefStm.StmDict.Append((unsigned char*)"Size", (void*)&(PP->ReferenceSize), Type::Int);
+
+	// 0 -> free
+	// 1 -> used
+	// 2 -> in the object stream
+	// -1 -> used but not listable because objNumber>=lastXRefStm
+	int* typeList=new int[PP->ReferenceSize];
+	int ok_count=0;
+	int i, j, k;
+	for(i=0; i<PP->ReferenceSize; i++){
+		if(PP->Reference[i]->objStream){
+			typeList[i]=2;
+			ok_count++;
+		}else if(PP->Reference[i]->used){
+			if(i<PP->lastXRefStm){
+				typeList[i]=1;
+				ok_count++;
+			}else{
+				typeList[i]=-1;
+			}
+		}else{
+			typeList[i]=0;
+			ok_count++;
+		}
+	}
+	cout << "TypeList: ";
+	for(i=0; i<PP->ReferenceSize; i++){
+		printf("%2d ", typeList[i]);
+	}
+	cout << endl;
+	// prepare Index array
+	Array* indexArr=new Array();
+	int* zero=new int(0);
+	indexArr->Append((void*)zero, Type::Int);
+	i=0;
+	int start=0;
+	bool in_list=true;
+	while(i<PP->ReferenceSize){
+		if(typeList[i]>=0){
+			i++;
+			continue;
+		}else{
+			in_list=false;
+			int* length1=new int(i-start);
+			indexArr->Append((void*)length1, Type::Int);
+			while(typeList[i]<0 && i<PP->ReferenceSize){
+				i++;
+			}
+			if(i<PP->ReferenceSize){
+				start=i;
+				int*start2=new int(i);
+				indexArr->Append((void*)start2, Type::Int);
+				in_list=true;
+			}
+		}
+	}
+	if(in_list){
+		int* length2=new int(i-start);
+		indexArr->Append((void*)length2, Type::Int);
+	}
+	XRefStm.StmDict.Append((unsigned char*)"Index", (void*)indexArr, Type::Array);
+	// list
+	int** dataList=new int*[ok_count];
+	int index=0;
+	for(i=0; i<PP->ReferenceSize; i++){
+		if(typeList[i]>=0){
+			dataList[index]=new int[3];
+			dataList[index][0]=typeList[i];
+			int nextFree=0;
+			switch(typeList[i]){
+			case 0:
+				// free -> next free object
+				for(j=i+1; j<PP->ReferenceSize; j++){
+					if(typeList[j]==0){
+						nextFree=j;
+						break;
+					}
+				}
+				dataList[index][1]=nextFree;
+				dataList[index][2]=PP->Reference[i]->genNumber;
+				break;
+			case 1:
+				// used
+				dataList[index][1]=PP->Reference[i]->position;
+				dataList[index][2]=PP->Reference[i]->genNumber;
+				break;
+			case 2:
+				// used, in the object stream
+				dataList[index][1]=PP->Reference[i]->objStreamNumber;
+				dataList[index][2]=PP->Reference[i]->objStreamIndex;
+				break;
+			default:
+				cout << "typeList error" << endl;
+				break;
+			}
+			index++;
+		}
+	}
+	for(i=0; i<ok_count; i++){
+		printf("%d %d %d\n", dataList[i][0], dataList[i][1], dataList[i][2]);
+	}
+	// determine W
+	int* W=new int[3];
+	W[0]=1;
+	W[1]=1;
+	W[2]=1;
+	for(i=0; i<ok_count; i++){
+		for(j=0; j<3; j++){
+			int b=byteSize(dataList[i][j]);
+			if(W[j]<b){
+				W[j]=b;
+			}
+		}
+	}
+	printf("W: %d %d %d\n", W[0], W[1], W[2]);
+	Array* WArr=new Array();
+	for(i=0; i<3; i++){
+		WArr->Append((void*)&(W[i]), Type::Int);
+	}
+	XRefStm.StmDict.Append((unsigned char*)"W", (void*)WArr, Type::Array);
+	int sumW=W[0]+W[1]+W[2];
+	XRefStm.dlength=sumW*ok_count;
+	XRefStm.decoded=new unsigned char[XRefStm.dlength];
+	int di=0;
+	for(i=0; i<ok_count; i++){
+		for(j=0; j<3; j++){
+			int v=dataList[i][j];
+			for(k=0; k<W[j]; k++){
+				XRefStm.decoded[di+W[j]-1-k]=(unsigned char)(v%256);
+				v=(v-v%256)/256;
+			}
+			di+=W[j];
+		}
+	}
+	/*
+	for(i=0; i<XRefStm.dlength; i++){
+		printf("%02x ", XRefStm.decoded[i]);
+	}
+	cout << endl;*/
+  XRefStm.Encode();
+	XRefStm.StmDict.Append((unsigned char*)"Length", (void*)&(XRefStm.length), Type::Int);
 }

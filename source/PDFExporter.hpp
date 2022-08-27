@@ -17,6 +17,8 @@ private:
 	void writeData(uchar* binary);
 	vector<unsigned char> exportObj(void* obj, int objType);
 	double literalStringBorder;
+	void constructXRefStm();
+	Stream XRefStm;
 public:
 	PDFExporter(PDFParser* parser);
 	bool exportToFile(char* fileName);
