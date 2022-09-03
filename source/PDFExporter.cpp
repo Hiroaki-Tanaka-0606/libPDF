@@ -15,6 +15,10 @@ PDFExporter::PDFExporter(PDFParser* parser):
 }
 
 bool PDFExporter::exportToFile(char* fileName){
+	return exportToFile(fileName, false);
+}
+
+bool PDFExporter::exportToFile(char* fileName, bool encryption){
 	int i, j;
 	file=new ofstream(fileName, ios::binary);
 

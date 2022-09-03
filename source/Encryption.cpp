@@ -443,6 +443,242 @@ Encryption::Encryption(Dictionary* encrypt, Array* ID):
 		
 }
 
+bool Encryption::DecryptString(uchar* str, int objNumber, int genNumber){
+	if(!FEKObtained){
+		cout << "Not yet authenticated" << endl;
+		return false;
+	}
+	if(str->decrypted){
+		// already decrypted
+		return true;
+	}
+	// copy the original data to encrypted
+	str->encrypted=new unsigned char[str->length+1];
+	int i;
+	for(i=0; i<str->length; i++){
+		str->encrypted[i]=str->data[i];
+	}
+	str->encrypted[str->length]='\0';
+	str->elength=str->length;
+
+	if(unsignedstrcmp(StrF, Idn)){
+		// Identity filter: do nothing
+		str->decrypted=true;
+		return true;
+	}
+	// use StrF
+	Dictionary* filter;
+	int filterType;
+	void* filterValue;
+	if(CF->Read(StrF, (void**)&filterValue, &filterType) && filterType==Type::Dict){
+		filter=(Dictionary*)filterValue;
+	}else{
+		cout << "Error in read StrF value" << endl;
+		return false;
+	}
+
+	unsigned char* CFM;
+	int CFMType;
+	void* CFMValue;
+	if(filter->Read((unsigned char*)"CFM", (void**)&CFMValue, &CFMType) && CFMType==Type::Name){
+		CFM=(unsigned char*)CFMValue;
+	}else{
+		cout << "Error in read CFM" << endl;
+		return false;
+	}
+
+	if(unsignedstrcmp(CFM, (unsigned char*)"V2")){
+		unsigned char hashed_md5[16];
+		int result;
+		EVP_MD_CTX* md5ctx=EVP_MD_CTX_new();
+		result=EVP_DigestInit_ex(md5ctx, EVP_md5(), NULL);
+		if(result!=1){
+			cout << "EVP_DigestInit failed" << endl;
+			return false;
+		}
+		// FEK
+		result=EVP_DigestUpdate(md5ctx, &(FEK->data[0]), Length_bytes);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in FEK" << endl;
+			return false;
+		}
+		// object number (low-order byte first)
+		int objNumber2=objNumber;
+		unsigned char objNumber_c[3];
+		for(i=0; i<3; i++){
+			objNumber_c[i]=objNumber2%256;
+			objNumber2=(objNumber2-objNumber2%256)/256;
+		}
+		result=EVP_DigestUpdate(md5ctx, &objNumber_c[0], 3);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in objNumber" << endl;
+			return false;
+		}
+		// gen number
+		int genNumber2=genNumber;
+		unsigned char genNumber_c[2];
+		for(i=0; i<2; i++){
+			genNumber_c[i]=genNumber2%256;
+			genNumber2=(genNumber2-genNumber2%256)/256;
+		}
+		result=EVP_DigestUpdate(md5ctx, &genNumber_c[0], 2);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in genNumber" << endl;
+			return false;
+		}
+		// close the hash
+		unsigned int count;
+		result=EVP_DigestFinal_ex(md5ctx, &hashed_md5[0], &count);
+		
+		// key
+		int key_length=max(Length_bytes+5, 16);
+		unsigned char key[key_length];
+		for(i=0; i<key_length; i++){
+			key[i]=hashed_md5[i];
+		}
+
+		//decryption
+		int rc4count;
+		int rc4finalCount;
+		EVP_CIPHER_CTX *rc4ctx=EVP_CIPHER_CTX_new();
+		EVP_CIPHER* rc4=EVP_CIPHER_fetch(NULL, "RC4", "provider=legacy");
+		result=EVP_DecryptInit_ex2(rc4ctx, rc4, key, NULL, NULL);
+		if(result!=1){
+			cout << "EVP_DecryptInit failed" << endl;
+			return NULL;
+		}
+		result=EVP_CIPHER_CTX_set_key_length(rc4ctx, key_length*8);
+		if(result!=1){
+			cout << "EVP_CIPHER_CTX_set_key_length failed" << endl;
+			return NULL;
+		}
+		result=EVP_DecryptUpdate(rc4ctx, &(str->data[0]), &rc4count, &(str->encrypted[0]), str->elength);
+		if(result!=1){
+			cout << "EVP_DecryptUpdate failed" << endl;
+			return NULL;
+		}
+		result=EVP_DecryptFinal_ex(rc4ctx, &(str->data[rc4count]), &rc4finalCount);
+		if(result!=1){
+			cout << "EVP_DecryptFinal failed" << endl;
+			return NULL;
+		}
+		rc4count+=rc4finalCount;
+			
+		str->length=rc4count;
+	}else if(unsignedstrcmp(CFM, (unsigned char*)"AESV2")){
+		unsigned char hashed_md5[16];
+		int result;
+		EVP_MD_CTX* md5ctx=EVP_MD_CTX_new();
+		result=EVP_DigestInit_ex(md5ctx, EVP_md5(), NULL);
+		if(result!=1){
+			cout << "EVP_DigestInit failed" << endl;
+			return false;
+		}
+		// FEK
+		result=EVP_DigestUpdate(md5ctx, &(FEK->data[0]), Length_bytes);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in FEK" << endl;
+			return false;
+		}
+		// object number (low-order byte first)
+		int objNumber2=objNumber;
+		unsigned char objNumber_c[3];
+		for(i=0; i<3; i++){
+			objNumber_c[i]=objNumber2%256;
+			objNumber2=(objNumber2-objNumber2%256)/256;
+		}
+		result=EVP_DigestUpdate(md5ctx, &objNumber_c[0], 3);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in objNumber" << endl;
+			return false;
+		}
+		// gen number
+		int genNumber2=genNumber;
+		unsigned char genNumber_c[2];
+		for(i=0; i<2; i++){
+			genNumber_c[i]=genNumber2%256;
+			genNumber2=(genNumber2-genNumber2%256)/256;
+		}
+		result=EVP_DigestUpdate(md5ctx, &genNumber_c[0], 2);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in genNumber" << endl;
+			return false;
+		}
+		// 'sAIT'
+		unsigned char sAIT[4]={0x73, 0x41, 0x6c, 0x54};
+		result=EVP_DigestUpdate(md5ctx, &sAIT[0], 4);
+		if(result!=1){
+			cout << "EVP_DigestUpdate failed in sAIT" << endl;
+			return false;
+		}
+		// close the hash
+		unsigned int count;
+		result=EVP_DigestFinal_ex(md5ctx, &hashed_md5[0], &count);
+		
+		// key and init vector
+		unsigned char key[16];
+		for(i=0; i<16; i++){
+			key[i]=hashed_md5[i];
+		}
+		unsigned char iv[16];
+		for(i=0; i<16; i++){
+			iv[i]=str->data[i];
+		}
+
+		// AES, CBC mode decrypt
+		int aescount;
+		EVP_CIPHER_CTX *aesctx=EVP_CIPHER_CTX_new();
+		result=EVP_DecryptInit_ex2(aesctx, EVP_aes_128_cbc(), key, iv, NULL);
+		if(result!=1){
+			cout << "EVP_DecryptInit failed " << endl;
+			return false;
+		}
+		result=EVP_DecryptUpdate(aesctx, &(str->data[0]), &aescount, &(str->encrypted[16]), (str->elength-16));
+		if(result!=1){
+			cout << "EVP_DecryptUpdate failed" << endl;
+			return false;
+		}
+		int aesfinalCount;
+		result=EVP_DecryptFinal_ex(aesctx, &(str->data[aescount]), &aesfinalCount);
+		if(result!=1){
+			cout << "EVP_DecryptFinal failed" << endl;
+			ERR_print_errors_fp(stderr);
+		}
+		aescount+=aesfinalCount;
+		str->length=aescount;
+	}else if(unsignedstrcmp(CFM, (unsigned char*)"AESV3")){
+		unsigned char iv[16];
+		for(i=0; i<16; i++){
+			iv[i]=str->data[i];
+		}
+
+		// AES, CBC mode decrypt
+		int aescount;
+		int result;
+		EVP_CIPHER_CTX *aesctx=EVP_CIPHER_CTX_new();
+		result=EVP_DecryptInit_ex2(aesctx, EVP_aes_256_cbc(), &(FEK->data[0]), iv, NULL);
+		if(result!=1){
+			cout << "EVP_DecryptInit failed " << endl;
+			return false;
+		}
+		result=EVP_DecryptUpdate(aesctx, &(str->data[0]), &aescount, &(str->encrypted[16]), (str->elength-16));
+		if(result!=1){
+			cout << "EVP_DecryptUpdate failed" << endl;
+			return false;
+		}
+		int aesfinalCount;
+		result=EVP_DecryptFinal_ex(aesctx, &(str->data[aescount]), &aesfinalCount);
+		if(result!=1){
+			cout << "EVP_DecryptFinal failed" << endl;
+			ERR_print_errors_fp(stderr);
+		}
+		aescount+=aesfinalCount;
+		str->length=aescount;
+	}
+	str->decrypted=true;
+	return true;
+} // end of DecryptString
+
 
 bool Encryption::DecryptStream(Stream* stm){
 	if(!FEKObtained){
@@ -514,10 +750,6 @@ bool Encryption::DecryptStream(Stream* stm){
 		return false;
 	}
 
-	if(!FEKObtained){
-		cout << "Error: not authenticated" << endl;
-		return false;
-	}
 	if(unsignedstrcmp(CFM, (unsigned char*)"V2")){
 		unsigned char hashed_md5[16];
 		int result;

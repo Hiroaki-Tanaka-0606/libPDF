@@ -22,4 +22,5 @@ private:
 public:
 	PDFExporter(PDFParser* parser);
 	bool exportToFile(char* fileName);
+	bool exportToFile(char* fileName, bool encryption);
 };

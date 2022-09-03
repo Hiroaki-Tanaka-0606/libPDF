@@ -157,7 +157,6 @@ PDFParser::PDFParser(char* fileName):
 	int encryptType;
 	void* encryptValue;
 	if(trailer.Search((unsigned char*)"Encrypt")>=0){
-		encrypted=true;
 		cout << "This document is encrypted" << endl;
 		int IDType;
 		void* IDValue;
@@ -188,6 +187,7 @@ PDFParser::PDFParser(char* fileName):
 			return;
 		}
 		encryptObj=new Encryption(encrypt, ID);
+		encrypted=true;
 	}else{
 		cout << "This document is not encrypted" << endl;
 	}
@@ -582,7 +582,61 @@ bool PDFParser::readRefObj(Indirect* ref, void** object, int* objType){
 			cout << "Error: invalid type" << endl;
 			return false;
 		}
-		
+		// encryption check
+		if(encrypted){
+			// decryption of strings
+			void* elementValue;
+			int elementType;
+			unsigned char* elementKey;
+			switch(*objType){
+			case Type::String:
+				if(encryptObj->DecryptString((uchar*)(*object), objNumber, genNumber)){
+					cout << "Decryption of string finished" << endl;
+				}
+				break;
+			case Type::Array:
+				for(i=0; i<((Array*)(*object))->getSize(); i++){
+					if(((Array*)(*object))->Read(i, &elementValue, &elementType)){
+						if(elementType==Type::String){
+							if(encryptObj->DecryptString((uchar*)elementValue, objNumber, genNumber)){
+								cout << "Decryption of string in array" << endl;
+							}else{
+								cout << "Error in decryption" << endl;
+								return false;
+							}
+						}
+					}else{
+						cout << "Error in reading an array" << endl;
+					}
+				}
+				break;
+			case Type::Dict:
+				for(i=0; i<((Dictionary*)(*object))->getSize(); i++){
+					if(((Dictionary*)(*object))->Read(i, &elementKey, &elementValue, &elementType)){
+						if(elementType==Type::String){
+							if(encryptObj->DecryptString((uchar*)elementValue, objNumber, genNumber)){
+								cout << "Decryption of string in dict" << endl;
+							}else{
+								cout << "Error in decryption" << endl;
+								return false;
+							}
+						}
+					}else{
+						cout << "Error in reading a dict" << endl;
+					}
+				}
+				break;
+			case Type::Stream:
+				if(!encryptObj->DecryptStream((Stream*)*object)){
+					cout << "Error in decrypting stream" << endl;
+					return false;
+				}
+				cout << "Decryption of stream finished" << endl;
+			}
+		}
+		if(*objType==Type::Stream){
+			((Stream*)(*object))->Decode();
+		}
 		cout << "ReadRefObj finished" << endl;
 	}
 

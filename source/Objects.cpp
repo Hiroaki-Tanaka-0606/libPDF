@@ -748,7 +748,9 @@ int PNGPredictor(unsigned char** pointer, int length, Dictionary* parm){
 Page::Page(){
 }
 
-uchar::uchar(){
+uchar::uchar():
+	decrypted(false)
+{
 }
 
 int byteSize(int n){

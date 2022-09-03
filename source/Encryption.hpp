@@ -48,5 +48,6 @@ public:
 	bool AuthOwner(uchar* pwd);
 	bool AuthOwner();
 	bool DecryptStream(Stream* stm);
+	bool DecryptString(uchar* str, int objNumber, int genNumber);
 	uchar* GetPassword();
 };

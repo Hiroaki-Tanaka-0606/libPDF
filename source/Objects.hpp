@@ -86,7 +86,10 @@ public:
 class uchar{
 public:
 	int length;
+	int elength;
 	unsigned char* data;
+	bool decrypted;
+	unsigned char* encrypted;
 	uchar();
 };
 
