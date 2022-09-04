@@ -41,6 +41,8 @@ private:
 	uchar* Hash6(uchar* input, bool owner, int saltLength);
 	uchar* RC4EncryptionKey(uchar* pwd);
 	uchar* DecryptO(uchar* RC4fek);
+	bool ExecDecryption(unsigned char** encrypted, int* elength, unsigned char** decrypted, int* length, unsigned char* CFM, int objNumber, int genNumber);
+	bool ExecEncryption(unsigned char** encrypted, int* elength, unsigned char** decrypted, int* length, unsigned char* CFM, int objNumber, int genNumber);
 public:
 	Encryption(Dictionary* encrypt, Array* ID);
 	bool AuthUser(uchar* pwd);
@@ -49,5 +51,6 @@ public:
 	bool AuthOwner();
 	bool DecryptStream(Stream* stm);
 	bool DecryptString(uchar* str, int objNumber, int genNumber);
+	bool EncryptStream(Stream* stm);
 	uchar* GetPassword();
 };

@@ -15,7 +15,7 @@ private:
 	int count; // current position of the file pointer
 	void writeData(char* buffer);
 	void writeData(uchar* binary);
-	vector<unsigned char> exportObj(void* obj, int objType);
+	vector<unsigned char> exportObj(void* obj, int objType, bool encryption);
 	double literalStringBorder;
 	void constructXRefStm();
 	Stream XRefStm;

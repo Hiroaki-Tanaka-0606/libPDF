@@ -14,7 +14,8 @@ PDFParser::PDFParser(char* fileName):
 	file(fileName),
 	error(false),
 	encrypted(false),
-	lastXRefStm(-1)
+	lastXRefStm(-1),
+	encryptObjNum(-1)
 {
 	if(!file){
 		cout << "Error in opening the input file" << endl;
@@ -172,6 +173,7 @@ PDFParser::PDFParser(char* fileName):
 		trailer.Read((unsigned char*)"Encrypt", (void**)&encryptValue, &encryptType);
 		if(encryptType==Type::Indirect){
 			Indirect* encryptRef=(Indirect*)encryptValue;
+			encryptObjNum=encryptRef->objNumber;
 			if(readRefObj(encryptRef, (void**)&encryptValue, &encryptType) && encryptType==Type::Dict){
 				encrypt=(Dictionary*)encryptValue;
 			}else{
@@ -483,7 +485,6 @@ bool PDFParser::readRefObj(Indirect* ref, void** object, int* objType){
 			return false;
 		}
 		int type=judgeType();
-		// cout << "Type: " << type << endl;
 		bool* boolValue;
 		int* intValue;
 		double* realValue;
@@ -583,7 +584,7 @@ bool PDFParser::readRefObj(Indirect* ref, void** object, int* objType){
 			return false;
 		}
 		// encryption check
-		if(encrypted){
+		if(encrypted && objNumber!=encryptObjNum){
 			// decryption of strings
 			void* elementValue;
 			int elementType;
@@ -1521,6 +1522,7 @@ bool PDFParser::readDict(Dictionary* dict, istream* is){
 				dict->Append(name, arrayValue, type);
 				break;
 			}
+			//dict->Print();
 			//break;
 		}else if(delim==Delimiter::GGT){
 			// >> (end of dictionary)

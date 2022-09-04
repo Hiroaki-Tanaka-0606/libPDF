@@ -26,7 +26,7 @@ int main(int argc, char** argv){
 	printf("Export destination: %s\n", argv[2]);
 
 	PDFExporter PE(&PP);
-	if(PE.exportToFile(argv[2])){
+	if(PE.exportToFile(argv[2],false)){
 		cout << "Export succeeded" << endl;
 	}else{
 		cout << "Export failed" << endl;

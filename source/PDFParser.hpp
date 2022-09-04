@@ -83,6 +83,7 @@ public:
 	Dictionary trailer;
 	Dictionary* encrypt;
 	Encryption* encryptObj;
+	int encryptObjNum;
 	bool encrypted;
 	Indirect** Reference;
 	int ReferenceSize;

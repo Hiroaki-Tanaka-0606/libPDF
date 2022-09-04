@@ -18,8 +18,13 @@
 #define CRYPT     "Crypt"
 
 #define ZBUFSIZE 1024
+#define DICTSIZE 128
+#define ARRAYSIZE 128
 
 Dictionary::Dictionary(){
+	keys.reserve(DICTSIZE);
+	values.reserve(DICTSIZE);
+	types.reserve(DICTSIZE);
 }
 
 int Dictionary::Search(unsigned char* key){
@@ -75,7 +80,7 @@ void Dictionary::Append(unsigned char* key, void* value, int type){
 	if(Search(key)>=0){
 		printf("Key %s already exists, skip it\n", key);
 		return;
-	}
+	}	
 	keys.push_back(key);
 	values.push_back(value);
 	types.push_back(type);
@@ -129,6 +134,8 @@ void Dictionary::Delete(int index){
 }
 
 Array::Array(){
+	values.reserve(ARRAYSIZE);
+	types.reserve(ARRAYSIZE);
 }
 
 void Array::Append(void* value, int type){
@@ -468,7 +475,7 @@ bool unsignedstrcmp(unsigned char* a, unsigned char* b){
 }
 
 int decodeData(unsigned char* encoded, unsigned char* filter, Dictionary* parm, int encodedLength, unsigned char** decoded){
-	printf("Filter: %s\n", filter);
+	printf("Filter: %s, encoded size: %d\n", filter, encodedLength);
 
 	unsigned char inBuf[ZBUFSIZE];
 	unsigned char outBuf[ZBUFSIZE];
@@ -524,17 +531,20 @@ int decodeData(unsigned char* encoded, unsigned char* filter, Dictionary* parm, 
 			
 				decodedData+=copyLength;
 				remainingData-=copyLength;
-				// printf("Decompress %d bytes\n", copyLength);
+				//printf("Decompress %d bytes\n", copyLength);
 			}
 			
 			// decompress
 			zStatus=inflate(&z, Z_NO_FLUSH);
-			// printf("Remaining output space: %d bytes\n", z.avail_out);
-			// printf("Remaining input buffer: %d bytes\n", z.avail_in);
+			//printf("Remaining output space: %d bytes\n", z.avail_out);
+			//printf("Remaining input buffer: %d bytes\n", z.avail_in);
 			if(zStatus==Z_STREAM_END){
 				break;
 			}else if(zStatus==Z_OK){
 				// cout << "inflate ok" << endl;
+				if(remainingData==0 && z.avail_in==0){
+					break;
+				}
 			}else{
 				printf("inflate error: %s\n", z.msg);
 				return 0;
@@ -584,7 +594,7 @@ int decodeData(unsigned char* encoded, unsigned char* filter, Dictionary* parm, 
 }
 
 int encodeData(unsigned char* decoded, unsigned char* filter, Dictionary* parm, int decodedLength, unsigned char** encoded){
-	printf("Filter: %s\n", filter);
+	printf("Filter: %s, decoded length: %d\n", filter, decodedLength);
 
 	unsigned char inBuf[ZBUFSIZE];
 	unsigned char outBuf[ZBUFSIZE];
@@ -653,7 +663,7 @@ int encodeData(unsigned char* decoded, unsigned char* filter, Dictionary* parm, 
 				break;
 			}else if(zStatus==Z_OK){
 				cout << "deflate ok" << endl;
-				if(keyword==Z_FINISH){
+				if(keyword==Z_FINISH && zStatus==Z_STREAM_END){
 					cout << "finish" << endl;
 					break;
 				}
@@ -662,6 +672,7 @@ int encodeData(unsigned char* decoded, unsigned char* filter, Dictionary* parm, 
 				return 0;
 			}
 			if(z.avail_out==0){
+				cout << "Buffer full" << endl;
 				// output buffer is full
 				for(i=0; i<ZBUFSIZE; i++){
 					output+=outBuf[i];
@@ -675,6 +686,8 @@ int encodeData(unsigned char* decoded, unsigned char* filter, Dictionary* parm, 
 			printf("deflateEnd error: %s", z.msg);
 			return 0;
 		}
+			printf("Remaining output space: %d bytes\n", z.avail_out);
+			printf("Remaining input buffer: %d bytes\n", z.avail_in);
 		for(i=0; i<(ZBUFSIZE-z.avail_out); i++){
 			output+=outBuf[i];
 		}
