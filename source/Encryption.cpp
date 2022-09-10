@@ -6,6 +6,8 @@
 #include <unistd.h>
 #include <cstring>
 #include <gsasl.h>
+#include <cstdlib>
+#include <ctime>
 
 #include "Encryption.hpp"
 
@@ -618,6 +620,58 @@ bool Encryption::EncryptStream(Stream* stm){
 	return true;
 }
 
+
+bool Encryption::EncryptString(uchar* str, int objNumber, int genNumber){
+	if(!FEKObtained){
+		cout << "Not yet authenticated" << endl;
+		return false;
+	}
+	// prepare buffer for encrypted data
+	// slightly longer than original due to padding and iv (16)
+	int padLength=16-(str->length%16);
+	str->encrypted=new unsigned char[str->length+padLength+17];
+	int i;
+
+	if(unsignedstrcmp(StrF, Idn)){
+		// Identity filter: do nothing
+		for(i=0; i<str->length; i++){
+			str->encrypted[i]=str->data[i];
+		}
+		str->encrypted[str->length]='\0';
+		str->elength=str->length;
+		return true;
+	}
+	// use StrF
+	Dictionary* filter;
+	int filterType;
+	void* filterValue;
+	if(CF->Read(StrF, (void**)&filterValue, &filterType) && filterType==Type::Dict){
+		filter=(Dictionary*)filterValue;
+	}else{
+		cout << "Error in read StrF value" << endl;
+		return false;
+	}
+
+	unsigned char* CFM;
+	int CFMType;
+	void* CFMValue;
+	if(filter->Read((unsigned char*)"CFM", (void**)&CFMValue, &CFMType) && CFMType==Type::Name){
+		CFM=(unsigned char*)CFMValue;
+	}else{
+		cout << "Error in read CFM" << endl;
+		return false;
+	}
+
+
+	if(ExecEncryption(&(str->encrypted), &(str->elength), &(str->data), &(str->length), CFM, objNumber, genNumber)){
+		str->decrypted=true;
+		return true;
+	}else{
+		cout << "Error in ExecEncryption" << endl;
+		return false;
+	}
+} // end of EncryptString
+
 bool Encryption::ExecDecryption(unsigned char** encrypted, int* elength, unsigned char** decrypted, int* length, unsigned char* CFM, int objNumber, int genNumber){
 	int i;
 	if(!FEKObtained){
@@ -966,8 +1020,9 @@ bool Encryption::ExecEncryption(unsigned char** encrypted, int* elength, unsigne
 			key[i]=hashed_md5[i];
 		}
 		unsigned char iv[16];
+		prepareIV(iv);
 		for(i=0; i<16; i++){
-			iv[i]=(*encrypted)[i];
+			(*encrypted)[i]=iv[i];
 		}
 
 		// AES, CBC mode decrypt
@@ -996,8 +1051,9 @@ bool Encryption::ExecEncryption(unsigned char** encrypted, int* elength, unsigne
 		*elength=aescount+16;
 	}else if(unsignedstrcmp(CFM, (unsigned char*)"AESV3")){
 		unsigned char iv[16];
+		prepareIV(iv);
 		for(i=0; i<16; i++){
-			iv[i]=(*encrypted)[i];
+			(*encrypted)[i]=iv[i];
 		}
 
 		// AES, CBC mode decrypt
@@ -2001,4 +2057,13 @@ uchar* Encryption::GetPassword(){
 	pwdObj->data[strlen(pwd)]='\0';
 	pwdObj->length=strlen(pwd);
 	return pwdObj;
+}
+
+void Encryption::prepareIV(unsigned char* iv){
+	srand((unsigned int)time(NULL));
+	int i;
+	for(i=0; i<16; i++){
+		int r=rand();
+		iv[i]=(unsigned char)r%256;
+	}
 }

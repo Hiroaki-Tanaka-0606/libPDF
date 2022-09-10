@@ -47,6 +47,9 @@ bool PDFExporter::exportToFile(char* fileName, bool encryption){
 	sprintf(buffer, "%c%c", CR, LF);
 	writeData(buffer);
 
+	// remove Linearized (test)
+	// PP->Reference[18]->used=false;
+	
 	// body
 	// list of ref numbers with data, excluding data in the object stream
 	cout << "List of Ref numbers with data" << endl;
@@ -57,7 +60,17 @@ bool PDFExporter::exportToFile(char* fileName, bool encryption){
 	}
 	
 	// export
-	for(i=0; i<PP->ReferenceSize; i++){
+	int i0;
+	int i1=-4;
+	int i2=-1;
+	for(i0=0; i0<PP->ReferenceSize; i0++){
+		if(i0==i1){
+			i=i2;
+		}else if(i0==i2){
+			i=i1;
+		}else{
+			i=i0;
+		}
 		if(PP->Reference[i]->objStream ||  !PP->Reference[i]->used){
 			continue;
 		}
@@ -83,7 +96,7 @@ bool PDFExporter::exportToFile(char* fileName, bool encryption){
 		if(i==PP->lastXRefStm){
 			data=exportObj(&XRefStm, Type::Stream, false);
 		}else{
-			data=exportObj(refObj, objType, encryption && (i!=PP->encryptObjNum));
+			data=exportObj(refObj, objType, encryption && (i!=PP->encryptObjNum), PP->Reference[i]->objNumber, PP->Reference[i]->genNumber);
 		}
 		uchar* data_uc=new uchar();
 		data_uc->length=data.size();
@@ -196,10 +209,13 @@ bool PDFExporter::exportToFile(char* fileName, bool encryption){
 		PP->trailer.Delete(prevIndex);
 	}
 	// set new XRefStm position
-	int* newXRefStmPos=new int(PP->Reference[PP->lastXRefStm]->position);
-	if(!PP->trailer.Update((unsigned char*)"XRefStm", (void*)newXRefStmPos, Type::Int)){
-		PP->trailer.Append((unsigned char*)"XRefStm", (void*)newXRefStmPos, Type::Int);
+	if(PP->lastXRefStm>=0){
+		int* newXRefStmPos=new int(PP->Reference[PP->lastXRefStm]->position);
+		if(!PP->trailer.Update((unsigned char*)"XRefStm", (void*)newXRefStmPos, Type::Int)){
+			PP->trailer.Append((unsigned char*)"XRefStm", (void*)newXRefStmPos, Type::Int);
+		}
 	}
+	
 	
 	cout << "Export trailer" << endl;
 	sprintf(buffer, "trailer%c%c", CR, LF);
@@ -234,7 +250,14 @@ void PDFExporter::writeData(uchar* binary){
 	printf("---- %5d bytes written, total %6d bytes\n", binary->length, count);
 }
 
+
+// objNumber, genNumber are used when encryption of string
 vector<unsigned char> PDFExporter::exportObj(void* obj, int objType, bool encryption){
+	return exportObj(obj, objType, encryption, 0, 0);
+}
+
+
+vector<unsigned char> PDFExporter::exportObj(void* obj, int objType, bool encryption, int objNumber, int genNumber){
 	vector<unsigned char> ret;
 	int i, j;
 	bool* obj_b;
@@ -258,6 +281,8 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType, bool encryp
 	vector<unsigned char> ret3;
 
 	Stream* obj_s;
+	int obj_s_length;
+	unsigned char* obj_s_data;
 
 	Indirect* obj_in;
 	
@@ -288,19 +313,29 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType, bool encryp
 		}
 		break;
 	case Type::String:
-		// count the number of normal letters (0x21~0x7E)
 		obj_st=(uchar*)obj;
+		// encryption
+		if(encryption){
+			PP->encryptObj->EncryptString(obj_st, objNumber, genNumber);
+			obj_s_length=obj_st->elength;
+			obj_s_data=obj_st->encrypted;
+		}else{
+			obj_s_length=obj_st->length;
+			obj_s_data=obj_st->data;
+		}
+		
+		// count the number of normal letters (0x21~0x7E)
 		numNormalLetters=0;
-		for(i=0; i<obj_st->length; i++){
-			if(0x21<=obj_st->data[i] && obj_st->data[i]<=0x7E){
+		for(i=0; i<obj_s_length; i++){
+			if(0x21<=obj_s_data[i] && obj_s_data[i]<=0x7E){
 				numNormalLetters++;
 			}
 		}
-		if(1.0*numNormalLetters/obj_st->length>literalStringBorder){
+		if(1.0*numNormalLetters/obj_s_length>literalStringBorder){
 			// literal
 			ret.push_back((unsigned char)'(');
-			for(i=0; i<obj_st->length; i++){
-				switch(obj_st->data[i]){
+			for(i=0; i<obj_s_length; i++){
+				switch(obj_s_data[i]){
 				case 0x0A: // line feed
 					ret.push_back((unsigned char)'\\');
 					ret.push_back((unsigned char)'n');
@@ -334,12 +369,12 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType, bool encryp
 					ret.push_back((unsigned char)'\\');
 					break;
 				default:
-					if(0x21<=obj_st->data[i] && obj_st->data[i] <=0x7E){
+					if(0x21<=obj_s_data[i] && obj_s_data[i] <=0x7E){
 						// normal letter
-						ret.push_back(obj_st->data[i]);
+						ret.push_back(obj_s_data[i]);
 					}else{
 						// octal
-						sprintf(buffer, "\\%03o", obj_st->data[i]);
+						sprintf(buffer, "\\%03o", obj_s_data[i]);
 						for(j=0; j<strlen(buffer); j++){
 							ret.push_back((unsigned char)buffer[j]);
 						}
@@ -352,8 +387,8 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType, bool encryp
 		}else{
 			// hexadecimal
 			ret.push_back((unsigned char)'<');
-			for(i=0; i<obj_st->length; i++){
-				sprintf(buffer, "%02x", obj_st->data[i]);
+			for(i=0; i<obj_s_length; i++){
+				sprintf(buffer, "%02x", obj_s_data[i]);
 				ret.push_back((unsigned char)buffer[0]);
 				ret.push_back((unsigned char)buffer[1]);
 			}
@@ -401,7 +436,7 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType, bool encryp
 			  ret2=exportObj(key, Type::Name, encryption);
 				copy(ret2.begin(), ret2.end(), back_inserter(ret));
 				ret.push_back((unsigned char)' ');
-			  ret3=exportObj(value, type, encryption);
+			  ret3=exportObj(value, type, encryption, objNumber, genNumber);
 				copy(ret3.begin(), ret3.end(), back_inserter(ret));
 				ret.push_back((unsigned char)' ');
 			}
@@ -412,16 +447,13 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType, bool encryp
 	case Type::Stream:
 		// stream dictionary
 		obj_s=(Stream*)obj;
-		ret2=exportObj((void*)&(obj_s->StmDict), Type::Dict, encryption);
+		ret2=exportObj((void*)&(obj_s->StmDict), Type::Dict, encryption, objNumber, genNumber);
 		copy(ret2.begin(), ret2.end(), back_inserter(ret));
 		sprintf(buffer, "%c%cstream%c%c", CR, LF, CR, LF);
 		for(i=0; i<strlen(buffer); i++){
 			ret.push_back((unsigned char)buffer[i]);
 		}
 		// stream data
-		if(PP->encrypted && obj_s->decrypted==false){
-			PP->encryptObj->DecryptStream(obj_s);
-		}
 		if(encryption){
 			PP->encryptObj->EncryptStream(obj_s);
 			for(i=0; i<obj_s->elength; i++){

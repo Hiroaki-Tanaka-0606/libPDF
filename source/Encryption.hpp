@@ -43,6 +43,7 @@ private:
 	uchar* DecryptO(uchar* RC4fek);
 	bool ExecDecryption(unsigned char** encrypted, int* elength, unsigned char** decrypted, int* length, unsigned char* CFM, int objNumber, int genNumber);
 	bool ExecEncryption(unsigned char** encrypted, int* elength, unsigned char** decrypted, int* length, unsigned char* CFM, int objNumber, int genNumber);
+	void prepareIV(unsigned char* iv);
 public:
 	Encryption(Dictionary* encrypt, Array* ID);
 	bool AuthUser(uchar* pwd);
@@ -52,5 +53,6 @@ public:
 	bool DecryptStream(Stream* stm);
 	bool DecryptString(uchar* str, int objNumber, int genNumber);
 	bool EncryptStream(Stream* stm);
+	bool EncryptString(uchar* str, int objNumber, int genNumber);
 	uchar* GetPassword();
 };

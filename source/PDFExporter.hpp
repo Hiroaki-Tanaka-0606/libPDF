@@ -16,6 +16,7 @@ private:
 	void writeData(char* buffer);
 	void writeData(uchar* binary);
 	vector<unsigned char> exportObj(void* obj, int objType, bool encryption);
+	vector<unsigned char> exportObj(void* obj, int objType, bool encryption, int objNumber, int genNumber);
 	double literalStringBorder;
 	void constructXRefStm();
 	Stream XRefStm;
