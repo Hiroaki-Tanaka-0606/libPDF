@@ -61,8 +61,8 @@ bool PDFExporter::exportToFile(char* fileName, bool encryption){
 	
 	// export
 	int i0;
-	int i1=-4;
-	int i2=-1;
+	int i1=20;
+	int i2=1;
 	for(i0=0; i0<PP->ReferenceSize; i0++){
 		if(i0==i1){
 			i=i2;
@@ -78,8 +78,10 @@ bool PDFExporter::exportToFile(char* fileName, bool encryption){
 		void* refObj;
 		int objType;
 		if(i==PP->lastXRefStm){
+			// XRef stream is exported at the last
 			// construct XRef stream
-			constructXRefStm();
+			// constructXRefStm();
+			continue;
 		}else{
 			if(PP->readRefObj(PP->Reference[i], &refObj, &objType)){
 				printf("Object type: %d\n", objType);
@@ -108,13 +110,51 @@ bool PDFExporter::exportToFile(char* fileName, bool encryption){
 		sprintf(buffer, "%c%cendobj%c%c", CR, LF, CR, LF);
 		writeData(buffer);
 	}
+	// XRef stream
+	PP->Reference[PP->lastXRefStm]->position=count;
+	int trailerPosition=count;
+
+	// trailer
+	if(!encryption){
+		// remove "Encrypt"
+		int encryptIndex=PP->trailer.Search((unsigned char*)"Encrypt");
+		if(encryptIndex>=0){
+			PP->trailer.Delete(encryptIndex);
+		}
+	}
+	// remove "Prev"
+	int prevIndex=PP->trailer.Search((unsigned char*)"Prev");
+	if(prevIndex>=0){
+		PP->trailer.Delete(prevIndex);
+	}
+	
+	constructXRefStm();
+	
+	sprintf(buffer, "%d %d obj%c%c", PP->lastXRefStm, PP->Reference[PP->lastXRefStm]->genNumber, CR, LF);
+	writeData(buffer);
+	vector<unsigned char> data;
+	data=exportObj(&XRefStm, Type::Stream, false);
+	uchar* data_uc=new uchar();
+	data_uc->length=data.size();
+	data_uc->data=new unsigned char[data.size()];
+	for(j=0; j<data.size(); j++){
+		data_uc->data[j]=data[j];
+	}
+	writeData(data_uc);
+	sprintf(buffer, "%c%cendobj%c%c", CR, LF, CR, LF);
+	writeData(buffer);
+	
 	// footer
 	// xref table
 	// objStream cannot be included
+	
 	cout << "Export xref table" << endl;
-	int trailerPosition=count;
-	sprintf(buffer, "xref%c%c", CR, LF);
-	writeData(buffer);
+	//int trailerPosition=count;
+	//sprintf(buffer, "xref%c%c0 0%c%c", CR, LF, CR, LF);
+	//writeData(buffer);
+	//sprintf(buffer, "xref%c%c", CR, LF);
+	//writeData(buffer);
+	/*
 	// 0 -> free
 	// 1 -> used
 	// 2 -> in the object stream
@@ -194,29 +234,18 @@ bool PDFExporter::exportToFile(char* fileName, bool encryption){
 				writeData(buffer);
 			}
 		}
-	}
-	// trailer
-	if(!encryption){
-		// remove "Encrypt"
-		int encryptIndex=PP->trailer.Search((unsigned char*)"Encrypt");
-		if(encryptIndex>=0){
-			PP->trailer.Delete(encryptIndex);
-		}
-	}
-	// remove "Prev"
-	int prevIndex=PP->trailer.Search((unsigned char*)"Prev");
-	if(prevIndex>=0){
-		PP->trailer.Delete(prevIndex);
-	}
+		}*/
+	
 	// set new XRefStm position
+	/*
 	if(PP->lastXRefStm>=0){
 		int* newXRefStmPos=new int(PP->Reference[PP->lastXRefStm]->position);
 		if(!PP->trailer.Update((unsigned char*)"XRefStm", (void*)newXRefStmPos, Type::Int)){
 			PP->trailer.Append((unsigned char*)"XRefStm", (void*)newXRefStmPos, Type::Int);
 		}
-	}
+		}*/
 	
-	
+	/*
 	cout << "Export trailer" << endl;
 	sprintf(buffer, "trailer%c%c", CR, LF);
 	writeData(buffer);	
@@ -228,7 +257,7 @@ bool PDFExporter::exportToFile(char* fileName, bool encryption){
 	for(i=0; i<data2.size(); i++){
 		data_uc2->data[i]=data2[i];
 	}
-	writeData(data_uc2);
+	writeData(data_uc2);*/
 	// startxref
 	sprintf(buffer, "%c%cstartxref%c%c%d%c%c%%%%EOF", CR, LF, CR, LF, trailerPosition, CR, LF);
 	writeData(buffer);
@@ -493,11 +522,13 @@ void PDFExporter::constructXRefStm(){
 	XRefStm.genNumber=0;
 	unsigned char* typeObj=new unsigned char[5];
 	unsigned char* filterObj=new unsigned char[12];
+	Dictionary* decodeParmsObj=new Dictionary();
 	unsignedstrcpy(typeObj, (unsigned char*)"XRef");
 	unsignedstrcpy(filterObj, (unsigned char*)"FlateDecode");
 	XRefStm.StmDict.Append((unsigned char*)"Type", (void*)typeObj, Type::Name);
 	XRefStm.StmDict.Append((unsigned char*)"Filter", (void*)filterObj, Type::Name);
 	XRefStm.StmDict.Append((unsigned char*)"Size", (void*)&(PP->ReferenceSize), Type::Int);
+	XRefStm.StmDict.Append((unsigned char*)"DecodeParms", (void*)decodeParmsObj, Type::Dict);
 
 	// 0 -> free
 	// 1 -> used
@@ -511,7 +542,7 @@ void PDFExporter::constructXRefStm(){
 			typeList[i]=2;
 			ok_count++;
 		}else if(PP->Reference[i]->used){
-			if(i<PP->lastXRefStm){
+			if(true || i<PP->lastXRefStm){
 				typeList[i]=1;
 				ok_count++;
 			}else{
@@ -638,4 +669,5 @@ void PDFExporter::constructXRefStm(){
 	cout << endl;*/
   XRefStm.Encode();
 	XRefStm.StmDict.Append((unsigned char*)"Length", (void*)&(XRefStm.length), Type::Int);
+	XRefStm.StmDict.Merge(PP->trailer);
 }
