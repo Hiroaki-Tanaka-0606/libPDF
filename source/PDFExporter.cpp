@@ -60,17 +60,7 @@ bool PDFExporter::exportToFile(char* fileName, bool encryption){
 	}
 	
 	// export
-	int i0;
-	int i1=20;
-	int i2=1;
-	for(i0=0; i0<PP->ReferenceSize; i0++){
-		if(i0==i1){
-			i=i2;
-		}else if(i0==i2){
-			i=i1;
-		}else{
-			i=i0;
-		}
+	for(i=0; i<PP->ReferenceSize; i++){
 		if(PP->Reference[i]->objStream ||  !PP->Reference[i]->used){
 			continue;
 		}
