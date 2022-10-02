@@ -21,10 +21,18 @@
 #define DICTSIZE 128
 #define ARRAYSIZE 128
 
+using namespace std;
+
 Dictionary::Dictionary(){
 	keys.reserve(DICTSIZE);
 	values.reserve(DICTSIZE);
 	types.reserve(DICTSIZE);
+}
+
+Dictionary::Dictionary(Dictionary* original){
+	copy(original->keys.begin(), original->keys.end(), back_inserter(keys));
+	copy(original->values.begin(), original->values.end(), back_inserter(values));
+	copy(original->types.begin(), original->types.end(), back_inserter(types));
 }
 
 int Dictionary::Search(unsigned char* key){
@@ -762,7 +770,8 @@ Page::Page(){
 }
 
 uchar::uchar():
-	decrypted(false)
+	decrypted(false),
+	hex(false)
 {
 }
 

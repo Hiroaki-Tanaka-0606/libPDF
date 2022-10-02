@@ -45,6 +45,7 @@ private:
 	vector<int> types;
 public:
 	Dictionary();
+	Dictionary(Dictionary* original);
 	void Append(unsigned char* key, void* value, int type);
 	void Print(int indent);
 	void Print();
@@ -90,6 +91,7 @@ public:
 	unsigned char* data;
 	bool decrypted;
 	unsigned char* encrypted;
+	bool hex;
 	uchar();
 };
 

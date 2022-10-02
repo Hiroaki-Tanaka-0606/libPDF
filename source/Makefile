@@ -1,8 +1,9 @@
 
-all: readPDF.o exportPDF.o
+all: readPDF.o exportPDF.o changePerms.o
 
 lib_r=PDFParser.o PDFVersion.o Objects.o Encryption.o
 lib_e=PDFParser.o PDFVersion.o Objects.o Encryption.o PDFExporter.o
+lib_c=PDFParser.o PDFVersion.o Objects.o Encryption.o PDFExporter.o
 option=-g -lz -L /home/hiroaki/openssl-3.0.2/ -l ssl -l crypto /usr/local/lib/libgsasl.a
 
 readPDF.o: readPDF_main.o $(lib_r)
@@ -12,6 +13,10 @@ readPDF.o: readPDF_main.o $(lib_r)
 exportPDF.o: exportPDF_main.o $(lib_e)
 	$(CXX) exportPDF_main.o $(lib_e) $(option) -o exportPDF.o
 	cp exportPDF.o ../executables/
+
+changePerms.o: changePerms_main.o $(lib_c)
+	$(CXX) changePerms_main.o $(lib_c) $(option) -o changePerms.o
+	cp changePerms.o ../executables/
 
 .cpp.o:
 	$(CXX) -c -g $<

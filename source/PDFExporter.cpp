@@ -73,7 +73,10 @@ bool PDFExporter::exportToFile(char* fileName, bool encryption){
 			// constructXRefStm();
 			continue;
 		}else{
-			if(PP->readRefObj(PP->Reference[i], &refObj, &objType)){
+			if(i==PP->encryptObjNum){
+				refObj=PP->encryptObj_ex->exportDict();
+				objType=Type::Dict;
+			}else if(PP->readRefObj(PP->Reference[i], &refObj, &objType)){
 				printf("Object type: %d\n", objType);
 			}else{
 				cout << "ReadRefObj error" << endl;
@@ -335,7 +338,7 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType, bool encryp
 		obj_st=(uchar*)obj;
 		// encryption
 		if(encryption){
-			PP->encryptObj->EncryptString(obj_st, objNumber, genNumber);
+			PP->encryptObj_ex->EncryptString(obj_st, objNumber, genNumber);
 			obj_s_length=obj_st->elength;
 			obj_s_data=obj_st->encrypted;
 		}else{
@@ -350,7 +353,7 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType, bool encryp
 				numNormalLetters++;
 			}
 		}
-		if(1.0*numNormalLetters/obj_s_length>literalStringBorder){
+		if(obj_st->hex==false && 1.0*numNormalLetters/obj_s_length>literalStringBorder){
 			// literal
 			ret.push_back((unsigned char)'(');
 			for(i=0; i<obj_s_length; i++){
@@ -474,7 +477,7 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType, bool encryp
 		}
 		// stream data
 		if(encryption){
-			PP->encryptObj->EncryptStream(obj_s);
+			PP->encryptObj_ex->EncryptStream(obj_s);
 			for(i=0; i<obj_s->elength; i++){
 				ret.push_back(obj_s->encrypted[i]);
 			}

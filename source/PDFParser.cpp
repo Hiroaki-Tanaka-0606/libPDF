@@ -189,6 +189,7 @@ PDFParser::PDFParser(char* fileName):
 			return;
 		}
 		encryptObj=new Encryption(encrypt, ID);
+		encryptObj_ex=new Encryption(encryptObj);
 		encrypted=true;
 	}else{
 		cout << "This document is not encrypted" << endl;

@@ -38,6 +38,41 @@ int EVP_DecryptUpdate(EVP_CIPHER_CTX *ctx, unsigned char *out,
  */
 
 using namespace std;
+Encryption::Encryption():
+	error(false),
+	Idn((unsigned char*)"Identity"),
+	CFexist(false),
+	encryptMeta(true),
+	FEKObtained(false)
+{
+}
+Encryption::Encryption(Encryption* original):
+	encryptDict(original->encryptDict),
+	V(original->V),
+	error(original->error),
+	Length(original->Length),
+	Length_bytes(original->Length_bytes),
+	CFexist(original->CFexist),
+	CF(original->CF),
+	StmF(original->StmF),
+	StrF(original->StrF),
+	Idn(original->Idn),
+	R(original->R),
+	O(original->O),
+	U(original->U),
+	OE(original->OE),
+	UE(original->UE),
+	Perms(original->Perms),
+	FEK(original->FEK),
+	FEKObtained(original->FEKObtained),
+	encryptMeta(original->encryptMeta)
+{
+	int i=0;
+	for(i=0; i<32; i++){
+		P[i]=original->P[i];
+	}
+			
+}
 Encryption::Encryption(Dictionary* encrypt, Array* ID):
 	// member initializer
 	encryptDict(encrypt),
@@ -567,7 +602,7 @@ bool Encryption::DecryptStream(Stream* stm){
 
 bool Encryption::EncryptStream(Stream* stm){
 	if(!FEKObtained){
-		cout << "Not yet authenticated" << endl;
+		cout << "Not yet authenticated!" << endl;
 		return false;
 	}
 	unsigned char* type;
@@ -623,7 +658,7 @@ bool Encryption::EncryptStream(Stream* stm){
 
 bool Encryption::EncryptString(uchar* str, int objNumber, int genNumber){
 	if(!FEKObtained){
-		cout << "Not yet authenticated" << endl;
+		cout << "Not yet authenticated?" << endl;
 		return false;
 	}
 	// prepare buffer for encrypted data
@@ -1850,6 +1885,86 @@ uchar* Encryption::fileEncryptionKey6(uchar* pwd, bool owner){
 	return fek;
 }
 
+uchar* Encryption::encryptFEK6(uchar* pwd, bool owner){
+	// saslprep
+	int result;
+	char* in=new char[pwd->length+1];
+	int i;
+	for(i=0; i<pwd->length; i++){
+		in[i]=pwd->data[i];
+	}
+	in[pwd->length]='\0';
+	char* out;
+	int stringpreprc;
+	result=gsasl_saslprep(&in[0], GSASL_ALLOW_UNASSIGNED, &out, &stringpreprc);
+	if(result!=GSASL_OK){
+		printf("GSASL SASLprep error(%d): %s\n", stringpreprc, gsasl_strerror(stringpreprc));
+		return NULL;
+	}
+
+	// user (owner=false): (pwd)(User key salt) -> hash
+	// owner (owner=true): (pwd)(Owner key salt)(U) -> hash
+	int inLength=strlen(out)+8;
+	int saltLength=8;
+	if(owner){
+		inLength+=48;
+		saltLength+=48;
+	}
+	uchar* input=new uchar();
+	input->length=inLength;
+	input->data=new unsigned char[inLength];
+	for(i=0; i<strlen(out); i++){
+		input->data[i]=out[i];
+	}
+	if(owner){
+		for(i=0; i<8; i++){
+			input->data[strlen(out)+i]=O->data[40+i];
+		}
+		for(i=0; i<48; i++){
+			input->data[strlen(out)+8+i]=U->data[i];
+		}
+	}else{
+		for(i=0; i<8; i++){
+			input->data[strlen(out)+i]=U->data[40+i];
+		}
+	}
+	uchar* key=Hash6(input, owner, saltLength);
+	uchar* encrypted_fek=new uchar();
+	encrypted_fek->length=32;
+	encrypted_fek->data=new unsigned char[32];
+	// encrypt FEK by AES-256 no padding, zero vector as iv
+	unsigned char iv[16];
+	for(i=0; i<16; i++){
+		iv[i]='\0';
+	}
+	int aescount;
+	EVP_CIPHER_CTX *aesctx=EVP_CIPHER_CTX_new();
+	result=EVP_EncryptInit_ex2(aesctx, EVP_aes_256_cbc(), &(key->data[0]), &iv[0], NULL);
+	if(result!=1){
+		cout << "EVP_EncryptInit failed " << endl;
+		return NULL;
+	}
+	result=EVP_CIPHER_CTX_set_padding(aesctx, 0);
+	if(result!=1){
+		cout << "EVP_CIPHER_CTX_set_padding failed" << endl;
+		return NULL;
+	}
+	result=EVP_EncryptUpdate(aesctx, &(encrypted_fek->data[0]), &aescount, &(FEK->data[0]), FEK->length);
+	if(result!=1){
+		cout << "EVP_DecryptUpdate failed" << endl;
+		return NULL;
+	}
+	int aesfinalCount;
+	result=EVP_EncryptFinal_ex(aesctx, &(encrypted_fek->data[aescount]), &aesfinalCount);
+	if(result!=1){
+		cout << "EVP_EncryptFinal failed" << endl;
+		//return false;
+	}
+	aescount+=aesfinalCount;
+
+	return encrypted_fek;
+}
+
 uchar* Encryption::RC4EncryptionKey(uchar* pwd){
 	if(error){
 		return NULL;
@@ -2033,6 +2148,68 @@ uchar* Encryption::DecryptO(uchar* RC4fek){
 	return NULL;
 }
 
+void Encryption::EncryptO(unsigned char* paddedUserPwd, uchar* RC4fek){
+	int i,j;
+	if(R==2){
+		
+	}else if(R==3 || R==4){
+		unsigned char encrypted_rc4[32];
+		unsigned char unencrypted[32];
+		for(i=0; i<32; i++){
+			encrypted_rc4[i]=paddedUserPwd[i];
+		}
+		int result;
+		int rc4count;
+		int rc4finalCount;
+		EVP_CIPHER_CTX *rc4ctx=EVP_CIPHER_CTX_new();
+		EVP_CIPHER* rc4=EVP_CIPHER_fetch(NULL, "RC4", "provider=legacy");
+		result=EVP_EncryptInit_ex2(rc4ctx, rc4, RC4fek->data, NULL, NULL);
+		for(i=0; i<=19; i++){
+			unsigned char fek_i[Length_bytes];
+			for(j=0; j<32; j++){
+				unencrypted[j]=encrypted_rc4[j];
+			}
+			for(j=0; j<Length_bytes; j++){
+				fek_i[j]=(RC4fek->data[j])^((unsigned char)i);
+			}
+			result=EVP_CIPHER_CTX_reset(rc4ctx);
+			if(result!=1){
+				cout << "EVP_CIPHER_CTX_reset failed" << endl;
+				return;
+			}
+			result=EVP_EncryptInit_ex2(rc4ctx, rc4, &fek_i[0], NULL, NULL);
+			if(result!=1){
+				cout << "EVP_EncryptInit failed" << endl;
+				return;
+			}
+			result=EVP_CIPHER_CTX_set_key_length(rc4ctx, Length);
+			if(result!=1){
+				cout << "EVP_CIPHER_CTX_set_key_length failed" << endl;
+				return;
+			}
+			result=EVP_EncryptUpdate(rc4ctx, &encrypted_rc4[0], &rc4count, &unencrypted[0], 32);
+			if(result!=1){
+				cout << "EVP_EncryptUpdate failed" << endl;
+				return;
+			}
+			result=EVP_EncryptFinal_ex(rc4ctx, &(encrypted_rc4[rc4count]), &rc4finalCount);
+			if(result!=1){
+				cout << "EVP_EncryptFinal failed" << endl;
+				return;
+			}
+			rc4count+=rc4finalCount;
+		}
+	  O=new uchar();
+		O->data=new unsigned char[rc4count+1];
+		for(i=0; i<rc4count; i++){
+			O->data[i]=encrypted_rc4[i];
+		}
+		O->data[rc4count]='\0';
+		O->length=rc4count;
+	}
+}
+
+
 
 uchar* Encryption::GetPassword(){
 	char pwd[64];
@@ -2067,3 +2244,323 @@ void Encryption::prepareIV(unsigned char* iv){
 		iv[i]=(unsigned char)r%256;
 	}
 }
+
+int Encryption::getV(){
+	return V;
+}
+
+
+// (V=1 5 bytes, R=2)
+// V=2 >5 bytes (set to 16 bytes), R=3
+// V=4 16 bytes, R=4
+// V=5 32 bytes, R=6
+void Encryption::setV(int V_new){
+	switch(V_new){
+	case 1:
+		V=1;
+		R=2;
+		Length=40;
+		Length_bytes=5;
+		break;
+	case 2:
+		V=2;
+		R=3;
+		Length=128;
+		Length_bytes=16;
+		break;
+	case 4:
+		V=4;
+		R=4;
+		Length=128;
+		Length_bytes=16;
+		break;
+	case 5:
+		V=5;
+		R=6;
+		Length=256;
+		Length_bytes=32;
+		break;
+	default:
+		cout << "setV error" << endl;
+	}
+}
+
+void Encryption::setCFM(char* CFM_new){
+	// set the CFM of StdCF to the given value
+	CF=new Dictionary(CF);
+	int StdCFIndex=CF->Search((unsigned char*)"StdCF");
+	if(StdCFIndex>=0){
+		CF->Delete(StdCFIndex);
+	}
+	Dictionary* StdCF=new Dictionary();
+	StdCF->Append((unsigned char*)"CFM", (unsigned char*)CFM_new, Type::Name);
+	StdCF->Append((unsigned char*)"Length", &Length, Type::Int);
+	CF->Append((unsigned char*)"StdCF", StdCF, Type::Dict);
+	
+	// set "StdCF" to StmF and StrF
+	StmF=(unsigned char*)"StdCF";
+	StrF=(unsigned char*)"StdCF";
+}
+
+
+void Encryption::setPwd(Array* ID, uchar* userPwd, uchar* ownerPwd){
+	// copy ID to IDs
+	uchar* idValue;
+	int idType;
+	int i;
+	int j;
+	for(i=0; i<2; i++){
+		if(ID->Read(i, (void**)&idValue, &idType) && idType==Type::String){
+			IDs[i]=new uchar();
+			IDs[i]->length=16;
+			IDs[i]->data=new unsigned char[16];
+			for(j=0; j<16; j++){
+				IDs[i]->data[j]=idValue->data[j];
+			}
+		}
+	}
+	if(R<=4){
+		// ownerPwd -> RC4fek
+		uchar* RC4fek=RC4EncryptionKey(ownerPwd);
+
+		// userPwd -> padded userPwd
+		int fromPwd=min(32, userPwd->length);
+		int fromPad=32-fromPwd;
+		unsigned char paddedUserPwd[32];
+		for(i=0; i<fromPwd; i++){
+			paddedUserPwd[i]=userPwd->data[i];
+		}
+		for(i=0; i<fromPad; i++){
+			paddedUserPwd[i+fromPwd]=PADDING[i];
+		}
+
+		// RC4fek, paddedUserPwd -> O
+		EncryptO(paddedUserPwd, RC4fek);
+		cout << "O: ";
+		for(i=0; i<O->length; i++){
+			printf("%02x", O->data[i]);
+		}
+		cout << endl;
+		
+		// userPwd -> FEK
+		FEK=fileEncryptionKey(userPwd);
+		cout << "FEK: ";
+		for(i=0; i<FEK->length; i++){
+			printf("%02x", FEK->data[i]);
+		}
+		cout << endl;
+
+		// FEK -> U_short (16) + arbitrary (16) -> U
+		uchar* U_short=trialU(FEK);
+		U=new uchar();
+		U->length=32;
+		U->data=new unsigned char[32];
+		for(i=0; i<U_short->length; i++){
+			U->data[i]=U_short->data[i];
+		}
+		for(i=U_short->length; i<32; i++){
+			U->data[i]=0;
+		}
+		cout << "U: ";
+		for(i=0; i<U->length; i++){
+			printf("%02x", U->data[i]);
+		}
+		cout << endl;
+	}else if(R==6){
+		// prepare FEK (32 bytes, random)
+		FEK=new uchar();
+		FEK->length=32;
+		FEK->data=new unsigned char[32];
+		srand((unsigned int)time(NULL));
+		int i;
+		for(i=0; i<32; i++){
+			int r=rand();
+			FEK->data[i]=(unsigned char)r%256;
+		}
+
+		// prepare salt parts of U and O
+		U=new uchar();
+		U->length=48;
+		U->data=new unsigned char[48];
+		O=new uchar();
+		O->length=48;
+		O->data=new unsigned char[48];
+		for(i=0; i<16; i++){
+			int r=rand();
+			U->data[32+i]=(unsigned char)r%256;
+			r=rand();
+			O->data[32+i]=(unsigned char)r%256;
+		}
+
+		// U and UE
+		// because hash for O and OE uses U
+		uchar* tU=trialU6(userPwd);
+		for(i=0; i<tU->length; i++){
+			U->data[i]=tU->data[i];
+		}
+
+		UE=encryptFEK6(userPwd, false);
+
+		cout << "U: ";
+		for(i=0; i<U->length; i++){
+			printf("%02x", U->data[i]);
+		}
+		cout << endl;
+		cout << "UE: ";
+		for(i=0; i<UE->length; i++){
+			printf("%02x", UE->data[i]);
+		}
+		cout << endl;
+
+		// O and OE
+		uchar* tO=trialO6(ownerPwd);
+		for(i=0; i<tO->length; i++){
+			O->data[i]=tO->data[i];
+		}
+		OE=encryptFEK6(ownerPwd, true);
+		
+		cout << "O: ";
+		for(i=0; i<O->length; i++){
+			printf("%02x", O->data[i]);
+		}
+		cout << endl;
+		cout << "OE: ";
+		for(i=0; i<OE->length; i++){
+			printf("%02x", OE->data[i]);
+		}
+		cout << endl;
+
+		// Perms
+		int aescount;
+		int result;
+		EVP_CIPHER_CTX *aesctx=EVP_CIPHER_CTX_new();
+		unsigned char iv[16];
+		uchar* Perms_decoded=new uchar();
+		Perms_decoded->data=new unsigned char[16];
+		Perms_decoded->length=16;
+		for(i=0; i<16; i++){
+			iv[i]='\0';
+			Perms_decoded->data[i]='\0';
+		}
+		Perms=new uchar();
+		Perms->data=new unsigned char[16];
+		Perms->length=16;
+		// prepare Perms_decoded
+		// 0-3: from P
+		int j;
+		for(i=0; i<4; i++){
+			for(j=0; j<8; j++){
+				if(P[i*8+j]){
+					Perms_decoded->data[i]+=(1<<j);
+				}
+			}
+		}
+		// 4-7: FF
+		for(i=4; i<8; i++){
+			Perms_decoded->data[i]=0xff;
+		}
+		// 8: encryptMeta
+		Perms_decoded->data[8]=encryptMeta?'T':'F';
+		// 9-11: adb
+		Perms_decoded->data[9]='a';
+		Perms_decoded->data[10]='d';
+		Perms_decoded->data[11]='b';
+		
+		result=EVP_EncryptInit_ex2(aesctx, EVP_aes_256_cbc(), &(FEK->data[0]), &iv[0], NULL);
+		if(result!=1){
+			cout << "EVP_EncryptInit failed " << endl;
+			error=true;
+			return;
+		}
+		result=EVP_CIPHER_CTX_set_padding(aesctx, 0);
+		if(result!=1){
+			cout << "EVP_CIPHER_CTX_set_padding failed" << endl;
+			error=true;
+			return;
+		}
+		result=EVP_EncryptUpdate(aesctx, &(Perms->data[0]), &aescount, &(Perms_decoded->data[0]), 16);
+		if(result!=1){
+			cout << "EVP_EncryptUpdate failed" << endl;
+		  error=true;
+			return;
+		}
+		int aesfinalCount;
+		result=EVP_EncryptFinal_ex(aesctx, &(Perms->data[aescount]), &aesfinalCount);
+		if(result!=1){
+			cout << "EVP_EncryptFinal failed" << endl;
+			ERR_print_errors_fp(stderr);
+			error=true;
+			return;
+		}
+		aescount+=aesfinalCount;
+
+		cout << "Perms (before encryption): ";
+		for(i=0; i<Perms_decoded->length; i++){
+			printf("%02x", Perms_decoded->data[i]);
+		}
+		cout << endl;
+		cout << "Perms (encrypted): ";
+		for(i=0; i<Perms->length; i++){
+			printf("%02x", Perms->data[i]);
+		}
+		cout << endl;
+	}
+}
+
+void Encryption::setP(bool* P_new){
+	P[0]=false;
+	P[1]=false;
+	P[2]=P_new[0];
+	P[3]=P_new[1];
+	P[4]=true;
+	P[5]=P_new[2];
+	P[6]=true;
+	P[7]=true;
+	P[8]=P_new[3];
+	P[9]=true;
+	P[10]=P_new[4];
+	P[11]=P_new[5];
+	int i;
+	for(i=12; i<32; i++){
+		P[i]=true;
+	}
+}
+
+Dictionary* Encryption::exportDict(){
+	Dictionary* ret=new Dictionary();
+	O->hex=true;
+	U->hex=true;
+	if(R==6){
+		OE->hex=true;
+		UE->hex=true;
+		Perms->hex=true;
+	}
+	ret->Append((unsigned char*)"R", &R, Type::Int);
+	ret->Append((unsigned char*)"O", O, Type::String);
+	ret->Append((unsigned char*)"U", U, Type::String);
+	if(R==6){
+		ret->Append((unsigned char*)"OE", OE, Type::String);
+		ret->Append((unsigned char*)"UE", UE, Type::String);
+	}
+	int* P_i=new int();
+	*P_i=-1;
+  int i;
+	for(i=0; i<32; i++){
+		if(P[i]==false){
+			*P_i-=1<<i;
+		}
+	}
+	ret->Append((unsigned char*)"P", P_i, Type::Int);
+	if(R==6){
+		ret->Append((unsigned char*)"Perms", Perms, Type::String);
+	}
+	ret->Append((unsigned char*)"EncryptMetaData", &encryptMeta, Type::Bool);
+	ret->Append((unsigned char*)"Filter", (unsigned char*)"Standard", Type::Name);
+	ret->Append((unsigned char*)"V", &V, Type::Int);
+	ret->Append((unsigned char*)"Length", &Length, Type::Int);
+	ret->Append((unsigned char*)"CF", CF, Type::Dict);
+	ret->Append((unsigned char*)"StmF", StmF, Type::Name);
+	ret->Append((unsigned char*)"StrF", StrF, Type::Name);
+	return ret;
+}
+
