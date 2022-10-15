@@ -1060,7 +1060,7 @@ bool Encryption::ExecEncryption(unsigned char** encrypted, int* elength, unsigne
 			(*encrypted)[i]=iv[i];
 		}
 
-		// AES, CBC mode decrypt
+		// AES, CBC mode encrypt
 		int aescount;
 		EVP_CIPHER_CTX *aesctx=EVP_CIPHER_CTX_new();
 		result=EVP_EncryptInit_ex2(aesctx, EVP_aes_128_cbc(), key, iv, NULL);
@@ -1068,6 +1068,7 @@ bool Encryption::ExecEncryption(unsigned char** encrypted, int* elength, unsigne
 			cout << "EVP_EncryptInit failed " << endl;
 			return false;
 		}
+		
 		result=EVP_EncryptUpdate(aesctx, &((*encrypted)[16]), &aescount, &((*decrypted)[0]), *length);
 		if(result!=1){
 			cout << "EVP_EncryptUpdate failed" << endl;
@@ -2512,14 +2513,14 @@ void Encryption::setP(bool* P_new){
 	P[1]=false;
 	P[2]=P_new[0];
 	P[3]=P_new[1];
-	P[4]=true;
-	P[5]=P_new[2];
+	P[4]=P_new[2];
+	P[5]=P_new[3];
 	P[6]=true;
 	P[7]=true;
-	P[8]=P_new[3];
+	P[8]=P_new[4];
 	P[9]=true;
-	P[10]=P_new[4];
-	P[11]=P_new[5];
+	P[10]=P_new[5];
+	P[11]=P_new[6];
 	int i;
 	for(i=12; i<32; i++){
 		P[i]=true;

@@ -469,6 +469,12 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType, bool encryp
 	case Type::Stream:
 		// stream dictionary
 		obj_s=(Stream*)obj;
+		if(encryption){
+			PP->encryptObj_ex->EncryptStream(obj_s);
+			obj_s->StmDict.Update((unsigned char*)"Length", &(obj_s->elength), Type::Int);
+		}else{
+			obj_s->StmDict.Update((unsigned char*)"Length", &(obj_s->length), Type::Int);
+		}
 		ret2=exportObj((void*)&(obj_s->StmDict), Type::Dict, encryption, objNumber, genNumber);
 		copy(ret2.begin(), ret2.end(), back_inserter(ret));
 		sprintf(buffer, "%c%cstream%c%c", CR, LF, CR, LF);
@@ -477,7 +483,6 @@ vector<unsigned char> PDFExporter::exportObj(void* obj, int objType, bool encryp
 		}
 		// stream data
 		if(encryption){
-			PP->encryptObj_ex->EncryptStream(obj_s);
 			for(i=0; i<obj_s->elength; i++){
 				ret.push_back(obj_s->encrypted[i]);
 			}

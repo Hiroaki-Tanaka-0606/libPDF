@@ -69,15 +69,15 @@ int main(int argc, char** argv){
 
 	// P
 	cout << "Enter P, 1: enabled, 0: disabled" << endl;
-	// 3, 4, 6, 9, 11, 12
-	cout << "Print, Copy, Annotations, Fill forms, Assemble, Faithful print" << endl;
-	bool p[6];
+	// 3, 4, 5, 6, 9, 11, 12
+	cout << "Print, Modify, Copy, Annotations, Fill forms, Assemble, Faithful print" << endl;
+	bool p[7];
 	char p_c[64];
 	int i;
 	while(true){
 		cin >> p_c;
 		bool p_error=false;
-		for(i=0; i<6; i++){
+		for(i=0; i<7; i++){
 			if(p_c[i]=='0' || p_c[i]=='1'){
 				p[i]=(p_c[i]=='1');
 			}else{
