@@ -2,3 +2,5 @@
 *.o
 *.pdf
 *.dat
+*.der
+*.pem
