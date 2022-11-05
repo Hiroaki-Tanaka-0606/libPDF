@@ -30,7 +30,6 @@ using namespace std;
 
 class PDFParser{
 private:
-	ifstream file;
 	bool error;
 	int fileSize;
 	int offset;
@@ -78,6 +77,7 @@ private:
 	bool investigatePages(Indirect* pages, int* pageCount);
 public:
 	PDFParser(char* fileName);
+	ifstream file;
 	PDFVersion V_header;
 	PDFVersion V_catalog;
 	Dictionary trailer;
