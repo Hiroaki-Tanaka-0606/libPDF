@@ -162,7 +162,11 @@ int main(int argc, char** argv){
 
 	int bioResult;
 	BIO* signature_data=BIO_new(BIO_s_mem());
-	bioResult=BIO_write(signature_data, (char*)Contents->data, Contents->length);
+	if(PP.encrypted){
+		bioResult=BIO_write(signature_data, (char*)Contents->encrypted, Contents->elength);
+	}else{
+		bioResult=BIO_write(signature_data, (char*)Contents->data, Contents->length);
+	}
 	printf("Signature size: %d\n", bioResult);
 	CMS_ContentInfo* signature=d2i_CMS_bio(signature_data, NULL);
 	if(signature==NULL){
