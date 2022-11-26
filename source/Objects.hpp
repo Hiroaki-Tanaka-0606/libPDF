@@ -75,12 +75,13 @@ class Indirect{
 public:
 	int objNumber; // negative objNumber means the Indirect is not yet initialized
 	int genNumber;
-	int position;
+	int position; // negative position means value includes the value
 	bool used;
 	int type;
 	bool objStream;
 	int objStreamNumber;
 	int objStreamIndex;
+	void* value;
 	Indirect();
 };
 

@@ -474,6 +474,12 @@ bool PDFParser::readRefObj(Indirect* ref, void** object, int* objType){
 		cout << "ReadRefObj from object stream finished" << endl;
 	}else{
 		printf("The object is at %d\n", refInRef->position);
+		if(refInRef->position<0){
+			cout << "Value in the Indirect object" << endl;
+			*objType=refInRef->type;
+			*object=refInRef->value;
+			return true;
+		}
 		file.seekg(refInRef->position+offset, ios_base::beg);
 		int objNumber2;
 		int genNumber2;
@@ -1941,7 +1947,8 @@ bool PDFParser::readStream(Stream* stm, bool outputError){
 			}
 		}
 		if(flag){
-			return false;
+			cout << "warning: 'endstream' not found" << endl;
+			return true;
 		}
 	}else{
 		return false;

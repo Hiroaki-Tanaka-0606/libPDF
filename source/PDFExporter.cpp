@@ -104,6 +104,23 @@ bool PDFExporter::exportToFile(char* fileName, bool encryption){
 		writeData(buffer);
 	}
 	// XRef stream
+	if(PP->lastXRefStm<0){
+		// no XRef stream exists in the original
+		int XRefIndex=PP->ReferenceSize;
+		PP->ReferenceSize++;
+		Indirect** Reference_new=new Indirect*[PP->ReferenceSize];
+		for(i=0; i<PP->ReferenceSize-1; i++){
+			Reference_new[i]=PP->Reference[i];
+		}
+		Indirect* XRefStmRef=new Indirect();
+		XRefStmRef->objNumber=XRefIndex;
+		XRefStmRef->genNumber=0;
+		XRefStmRef->type=Type::Dict;
+		XRefStmRef->used=true;
+		PP->lastXRefStm=XRefIndex;
+		PP->Reference=Reference_new;
+		Reference_new[XRefIndex]=XRefStmRef;
+	}
 	PP->Reference[PP->lastXRefStm]->position=count;
 	int trailerPosition=count;
 
@@ -120,7 +137,6 @@ bool PDFExporter::exportToFile(char* fileName, bool encryption){
 	if(prevIndex>=0){
 		PP->trailer.Delete(prevIndex);
 	}
-	
 	constructXRefStm();
 	
 	sprintf(buffer, "%d %d obj%c%c", PP->lastXRefStm, PP->Reference[PP->lastXRefStm]->genNumber, CR, LF);
