@@ -133,3 +133,5 @@ int encodeData(unsigned char* decoded, unsigned char* filter, Dictionary* parm, 
 int PNGPredictor(unsigned char** pointer, int length, Dictionary* columns);
 
 int byteSize(int n);
+
+uchar* dateString();

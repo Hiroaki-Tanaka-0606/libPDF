@@ -567,11 +567,12 @@ void PDFExporter::constructXRefStm(){
 			ok_count++;
 		}
 	}
+	/*
 	cout << "TypeList: ";
 	for(i=0; i<PP->ReferenceSize; i++){
 		printf("%2d ", typeList[i]);
 	}
-	cout << endl;
+	cout << endl;*/
 	// prepare Index array
 	Array* indexArr=new Array();
 	int* zero=new int(0);
@@ -640,9 +641,10 @@ void PDFExporter::constructXRefStm(){
 			index++;
 		}
 	}
+	/*
 	for(i=0; i<ok_count; i++){
 		printf("%d %d %d\n", dataList[i][0], dataList[i][1], dataList[i][2]);
-	}
+		}*/
 	// determine W
 	int* W=new int[3];
 	W[0]=1;
@@ -656,7 +658,7 @@ void PDFExporter::constructXRefStm(){
 			}
 		}
 	}
-	printf("W: %d %d %d\n", W[0], W[1], W[2]);
+	// printf("W: %d %d %d\n", W[0], W[1], W[2]);
 	Array* WArr=new Array();
 	for(i=0; i<3; i++){
 		WArr->Append((void*)&(W[i]), Type::Int);

@@ -783,3 +783,24 @@ int byteSize(int n){
 	}
 	return byte;
 }
+
+uchar* dateString(){
+	uchar* date=new uchar();
+	date->length=22;
+	date->data=new unsigned char[23];
+
+	time_t t=time(NULL);
+	tm* now=localtime(&t);
+	int Y=now->tm_year+1900;
+	int M=now->tm_mon+1;
+	int D=now->tm_mday;
+	int H=now->tm_hour;
+	int m=now->tm_min;
+	int S=now->tm_sec;
+
+	char* tz=new char[7];
+	strcpy(tz, "+09'00");
+	
+	sprintf((char*)date->data, "D:%04d%02d%02d%02d%02d%02d%6s",Y,M,D,H,m,S,tz);
+	return date;
+}
