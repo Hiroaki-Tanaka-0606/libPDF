@@ -786,8 +786,8 @@ int byteSize(int n){
 
 uchar* dateString(){
 	uchar* date=new uchar();
-	date->length=22;
-	date->data=new unsigned char[23];
+	date->length=23;
+	date->data=new unsigned char[24];
 
 	time_t t=time(NULL);
 	tm* now=localtime(&t);
@@ -798,9 +798,9 @@ uchar* dateString(){
 	int m=now->tm_min;
 	int S=now->tm_sec;
 
-	char* tz=new char[7];
-	strcpy(tz, "+09'00");
+	char* tz=new char[8];
+	strcpy(tz, "+09'00'");
 	
-	sprintf((char*)date->data, "D:%04d%02d%02d%02d%02d%02d%6s",Y,M,D,H,m,S,tz);
+	sprintf((char*)date->data, "D:%04d%02d%02d%02d%02d%02d%7s",Y,M,D,H,m,S,tz);
 	return date;
 }
