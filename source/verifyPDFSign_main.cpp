@@ -184,6 +184,7 @@ int main(int argc, char** argv){
 	// argv[2] is certificate file (if exists)
 	bool useCerts=false;
 	X509_STORE* certStore=X509_STORE_new();
+	STACK_OF(X509)* certs=NULL;
 	if(argc>=3){
 		ifstream certFile(argv[2]);
 		certFile.seekg(0, ios_base::end);
@@ -201,17 +202,49 @@ int main(int argc, char** argv){
 		}
 		int addResult=X509_STORE_add_cert(certStore, cert);
 		printf("Add result: %d\n", addResult);
+		int setResult=X509_STORE_set_purpose(certStore, X509_PURPOSE_ANY);
+		printf("Set result: %d\n", setResult);
 		useCerts=true;
+		if(argc>=4){
+			certs=sk_X509_new_null();
+			for(i=3; i<argc; i++){
+				ifstream certFile(argv[i]);
+				certFile.seekg(0, ios_base::end);
+				int certSize=certFile.tellg();
+				certFile.seekg(0, ios_base::beg);
+				char cert_text[certSize];
+				certFile.read(cert_text, certSize);
+				BIO* cert_data=BIO_new(BIO_s_mem());
+				bioResult=BIO_write(cert_data, cert_text, certSize);
+				printf("Certificate size: %d\n", bioResult);
+				X509* chain=PEM_read_bio_X509(cert_data, NULL, 0, NULL);
+				if(chain==NULL){
+					cout << "X509 failed" << endl;
+					break;
+				}	
+				int pushResult=sk_X509_push(certs, chain);
+				if(pushResult<=0){
+					cout << "Push failed" << endl;
+					break;
+				}else{
+					printf("Number of chain elements: %d\n", pushResult);
+				}
+			}
+		}
 	}
 
+	ERR_print_errors_fp(stderr);
 	int verifyResult;
 	verifyResult=CMS_verify(signature, NULL, NULL, file_data, NULL, CMS_BINARY | CMS_NO_SIGNER_CERT_VERIFY);
 	printf("Verify no cert, no cert_verify: %d\n", verifyResult);
+	ERR_print_errors_fp(stderr);
 	verifyResult=CMS_verify(signature, NULL, NULL, file_data, NULL, CMS_BINARY);
 	printf("Verify no cert, cert_verify: %d\n", verifyResult);
+	ERR_print_errors_fp(stderr);
 	if(useCerts){
-		verifyResult=CMS_verify(signature, NULL, certStore, file_data, NULL, CMS_BINARY);
+		verifyResult=CMS_verify(signature, certs, certStore, file_data, NULL, CMS_BINARY);
 		printf("Verify cert, cert_verify: %d\n", verifyResult);
+		ERR_print_errors_fp(stderr);
 	}
 
 	STACK_OF(X509)* signers_sk=CMS_get0_signers(signature);

@@ -17,7 +17,7 @@ int findString(ifstream* file, char* keyword);
 
 int main(int argc, char** argv){
 	// constants
-	int signBufferSize=4096;
+	int signBufferSize=16384;
 	char* DigestMethod=new char[64];
 	strcpy(DigestMethod, "SHA256");
 	char* Signer=new char[32];
@@ -36,7 +36,7 @@ int main(int argc, char** argv){
 	// end of constants
 	cout << "Add a digital signature" << endl;
 	if(argc<5){
-		printf("Usage: %s input private_key.pem public_key.pem output\n", argv[0]);
+		printf("Usage: %s input output private_key.pem public_key.pem (certificates.pem)\n", argv[0]);
 		return -1;
 	}
 	printf("Input file: %s\n", argv[1]);
@@ -201,13 +201,13 @@ int main(int argc, char** argv){
 	DocMDP->Append((unsigned char*)"Name", uSigner, Type::String);
 	DocMDP->Append((unsigned char*)"M", dateString(), Type::String);
 
-	/*
+	
 	Dictionary* Prop_Build=new Dictionary();
 	DocMDP->Append((unsigned char*)"Prop_Build", Prop_Build, Type::Dict);
 	Dictionary* Prop_Filter=new Dictionary();
 	Prop_Build->Append((unsigned char*)"Filter", Prop_Filter, Type::Dict);
-	Prop_Filter->Append((unsigned char*)"Name", (unsigned char*) "HELLO.WORLD", Type::Name);
-	*/
+	Prop_Filter->Append((unsigned char*)"Name", (unsigned char*) "Adobe.PPKLite", Type::Name);
+	
 	// ToDo: Prop_Build?
 
 	
@@ -321,21 +321,21 @@ int main(int argc, char** argv){
 	
 	// export
 	PDFExporter PE(&PP);
-	if(PE.exportToFile(argv[4],PP.encrypted)){
+	if(PE.exportToFile(argv[2],PP.encrypted)){
 		cout << "Export succeeded" << endl;
 	}else{
 		cout << "Export failed" << endl;
 	}
 	cout << endl;
 
-	int outputSize=(int)filesystem::file_size(argv[4]);
+	int outputSize=(int)filesystem::file_size(argv[2]);
 	printf("Output file size: %d\n", outputSize);
 	
 	// modify ByteRange
 	int sigDictPos=DocMDP_in_XRef->position;
 	printf("Signature dictionary (DocMDP) position in the output: %d\n",sigDictPos);
 
-	ifstream* file_in=new ifstream(argv[4], ios::binary);
+	ifstream* file_in=new ifstream(argv[2], ios::binary);
 	file_in->seekg(sigDictPos,ios_base::beg);
 
 	int ByteRangePos=findString(file_in, (char*)"/ByteRange");
@@ -392,9 +392,9 @@ int main(int argc, char** argv){
 	}
 
 	// private key
-	printf("Private key from %s\n", argv[2]);
+	printf("Private key from %s\n", argv[3]);
 	BIO* mem=BIO_new(BIO_s_mem());
-	ifstream file_pri(argv[2]);
+	ifstream file_pri(argv[3]);
 	file_pri.seekg(0, ios_base::end);
 	int fileSize_pri=file_pri.tellg();
 	printf("File size: %d\n", fileSize_pri);
@@ -415,8 +415,8 @@ int main(int argc, char** argv){
 	printf("BIO size: %d\n", bioResult2);
 
 	// public key (certificate)
-	printf("Public key (certificate) from %s\n", argv[3]);
-	ifstream file_pub(argv[3]);
+	printf("Public key (certificate) from %s\n", argv[4]);
+	ifstream file_pub(argv[4]);
 	file_pub.seekg(0, ios_base::end);
 	int fileSize_pub=file_pub.tellg();
 	printf("File size: %d\n", fileSize_pub);
@@ -432,8 +432,41 @@ int main(int argc, char** argv){
 	if(cert==NULL){
 		cout << "X509 failed" << endl;
 	}
+
+	// certificate chains
+	STACK_OF(X509)* certs=NULL;
+	if(argc>=6){
+		certs=sk_X509_new_null();
+		for(i=5; i<argc; i++){
+			printf("Certificate chain from %s\n", argv[i]);
+			ifstream file_chain(argv[i]);
+			file_chain.seekg(0, ios_base::end);
+			int fileSize_chain=file_chain.tellg();
+			printf("File size: %d\n", fileSize_chain);
+			file_chain.seekg(0, ios_base::beg);
+			char data_chain[fileSize_chain];
+			file_chain.read(data_chain, fileSize_chain);
+
+			BIO* mem4=BIO_new(BIO_s_mem());
+			int bioResult4=BIO_write(mem4, data_chain, fileSize_chain);
+			printf("BIO size: %d\n", bioResult4);
+
+			X509* chain=PEM_read_bio_X509(mem4, NULL, 0, NULL);
+			if(chain==NULL){
+				cout << "X509 failed" << endl;
+				break;
+			}
+			int pushResult=sk_X509_push(certs, chain);
+			if(pushResult<=0){
+				cout << "Push failed" << endl;
+				break;
+			}else{
+				printf("Number of chain elements: %d\n", pushResult);
+			}
+		}
+	}
 	
-	CMS_ContentInfo* signed_data=CMS_sign(cert, private_key, NULL, data_for_sign, CMS_DETACHED | CMS_BINARY | CMS_NOSMIMECAP);
+	CMS_ContentInfo* signed_data=CMS_sign(cert, private_key, certs, data_for_sign, CMS_DETACHED | CMS_BINARY | CMS_NOSMIMECAP);
 	if(signed_data==NULL){
 		cout << "Sign failed" << endl;
 	}
@@ -460,7 +493,7 @@ int main(int argc, char** argv){
 	}
   	
 	
-	ofstream* file_out=new ofstream(argv[4], ios::binary);
+	ofstream* file_out=new ofstream(argv[2], ios::binary);
 	file_out->write(file_in_all, outputSize);
 	file_out->close();
 
