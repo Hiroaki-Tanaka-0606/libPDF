@@ -276,6 +276,7 @@ bool PDFParser::investigatePages(Indirect* pagesRef, int* pageCount){
 							Pages[*pageCount]=new Page();
 							Pages[*pageCount]->Parent=pagesRef;
 							Pages[*pageCount]->PageDict=kid;
+							Pages[*pageCount]->objNumber=kidRef->objNumber;
 							*pageCount=*pageCount+1;
 						}else if(unsignedstrcmp(kidType, (unsigned char*)"Pages")){
 							// cout << "Pages" << endl;

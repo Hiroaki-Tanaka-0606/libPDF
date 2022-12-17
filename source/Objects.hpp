@@ -118,6 +118,7 @@ public:
 	Page();
 	Indirect* Parent;
 	Dictionary* PageDict;
+	int objNumber;
 };
 
 

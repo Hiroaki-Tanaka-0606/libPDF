@@ -48,7 +48,7 @@ int main(int argc, char** argv){
 	void* acroFormValue;
 	Dictionary* acroForm;
 	Indirect* acroFormRef;
-	if(dCatalog->Read((unsigned char*)"AcroFrom", (void**)&acroFormValue, &acroFormType)){
+	if(dCatalog->Read((unsigned char*)"AcroForm", (void**)&acroFormValue, &acroFormType)){
 		if(acroFormType==Type::Dict){
 			acroForm=(Dictionary*)acroFormValue;
 		}else if(acroFormType==Type::Indirect){
@@ -64,6 +64,29 @@ int main(int argc, char** argv){
 			return -1;
 		}
 		acroForm->Print();
+		if(acroForm->Search((unsigned char*)"Fields")>=0){
+			Array* acroFormFields;
+			void* acroFormFieldsValue;
+			int acroFormFieldsType;
+			if(acroForm->Read((unsigned char*)"Fields", (void**)&acroFormFieldsValue, &acroFormFieldsType) && acroFormFieldsType==Type::Array){
+				acroFormFields=(Array*)acroFormFieldsValue;
+				int numFields=acroFormFields->getSize();
+				for(int i=0; i<numFields; i++){
+					Indirect* acroFormFieldRef;
+					void* acroFormFieldRefValue;
+					int acroFormFieldType;
+					if(acroFormFields->Read(i, (void**)&acroFormFieldRefValue, &acroFormFieldType) && acroFormFieldType==Type::Indirect){
+						acroFormFieldRef=(Indirect*)acroFormFieldRefValue;
+						Dictionary* acroFormField;
+						if(PP.readRefObj(acroFormFieldRef, (void**)&acroFormFieldRefValue, &acroFormFieldType) && acroFormFieldType==Type::Dict){
+							acroFormField=(Dictionary*)acroFormFieldRefValue;
+							acroFormField->Print();
+						}
+					}
+				}
+			}
+			
+		}
 		cout << endl;
 	}else{
 		cout << "No AcroFrom" << endl;

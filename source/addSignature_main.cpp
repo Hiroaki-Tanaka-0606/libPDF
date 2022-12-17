@@ -36,7 +36,7 @@ int main(int argc, char** argv){
 	// end of constants
 	cout << "Add a digital signature" << endl;
 	if(argc<5){
-		printf("Usage: %s input output private_key.pem public_key.pem (certificates.pem)\n", argv[0]);
+		printf("Usage: %s input output private_key.pem public_key.pem page_number (certificates.pem)\n", argv[0]);
 		return -1;
 	}
 	printf("Input file: %s\n", argv[1]);
@@ -211,7 +211,7 @@ int main(int argc, char** argv){
 	// ToDo: Prop_Build?
 
 	
-	// /AcroForm (indirect dictionary) in document catalog dictionary
+	// /AcroForm (indirect dictionary) in document catalog dictionary	
 	cout << "/AcroForm in the Document catalog dictionary" << endl;
 	int AcroFormType;
 	Indirect* AcroFormRef;
@@ -266,10 +266,44 @@ int main(int argc, char** argv){
 	AcroForm_in_XRef->value=AcroForm;
 	AcroForm_in_XRef->type=Type::Dict;
 
+	// Annots in page
+	int pageNum=atoi(argv[5]);
+	Dictionary* PD=PP.Pages[pageNum-1]->PageDict;
+	int pageObjNum=PP.Pages[pageNum-1]->objNumber;
+	Array* annotsArray;
+	int annotsArrayType;
+	void* annotsArrayValue;
+	if(PD->Search((unsigned char*)"Annots")<0){
+		printf("Annots does not exist in page %d, make it\n", pageNum);
+		annotsArray=new Array();
+		PD->Append((unsigned char*)"Annots", annotsArray, Type::Array);
+	}else{
+		if(PD->Read((unsigned char*)"Annots", (void**)&annotsArrayValue, &annotsArrayType) && annotsArrayType==Type::Array){
+			annotsArray=(Array*)annotsArrayValue;
+		}
+	}
+	PP.Reference[pageObjNum]->position=-1;
+	PP.Reference[pageObjNum]->value=PD;
+	PP.Reference[pageObjNum]->type=Type::Dict;
+	printf("Page %d dictionary: %d\n", pageNum, pageObjNum);
+	
 	Dictionary* SigField=new Dictionary();
+	
 	SigField->Append((unsigned char*)"FT", (unsigned char*)"Sig", Type::Name);
 	SigField->Append((unsigned char*)"T", uSigFieldName, Type::String);
 	SigField->Append((unsigned char*)"V", DocMDPRef, Type::Indirect);
+
+	// entries of Widget annotations
+	SigField->Append((unsigned char*)"Type", (unsigned char*)"Annot", Type::Name);
+	SigField->Append((unsigned char*)"Subtype", (unsigned char*)"Widget", Type::Name);
+	int F_value=0b0000000010;
+	SigField->Append((unsigned char*)"F", &F_value, Type::Int);
+	Array* Sig_rect=new Array();
+	int zero=0;
+	for(i=0; i<4; i++){
+		Sig_rect->Append(&zero, Type::Int);
+	}
+	SigField->Append((unsigned char*)"Rect", Sig_rect, Type::Array);
 
 	
 	int SigFieldIndex=PP.ReferenceSize;
@@ -288,7 +322,10 @@ int main(int argc, char** argv){
 	PP.Reference=Reference_new;
 	SigFieldRef->position=-1;
 	SigFieldRef->value=SigField;
+	
+	annotsArray->Append(SigFieldRef, Type::Indirect);
 
+	
 	int fieldsIndex=AcroForm->Search((unsigned char*)"Fields");
 	Array* fields;
 	void* fieldsValue;
@@ -317,7 +354,7 @@ int main(int argc, char** argv){
 		}
 	}else{
 		AcroForm->Append((unsigned char*)"SigFlags", &SigFlagsValue, Type::Int);
-	}
+		}
 	
 	// export
 	PDFExporter PE(&PP);
@@ -435,9 +472,9 @@ int main(int argc, char** argv){
 
 	// certificate chains
 	STACK_OF(X509)* certs=NULL;
-	if(argc>=6){
+	if(argc>=7){
 		certs=sk_X509_new_null();
-		for(i=5; i<argc; i++){
+		for(i=6; i<argc; i++){
 			printf("Certificate chain from %s\n", argv[i]);
 			ifstream file_chain(argv[i]);
 			file_chain.seekg(0, ios_base::end);
